@@ -9,13 +9,14 @@ import locality_aware_nms as nms_locality
 import lanms
 
 tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', '')
+tf.app.flags.DEFINE_bool('use_gpu', False, 'whether to use gpu')
 tf.app.flags.DEFINE_string('gpu_list', '0', '')
-tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_icdar2015_resnet_v1_50_rbox/', '')
+tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_resnet_v1_50_rbox/', '')
 tf.app.flags.DEFINE_string('output_dir', '/tmp/ch4_test_images/images/', '')
 tf.app.flags.DEFINE_bool('no_write_images', False, 'do not write images')
 
 import model
-from icdar import restore_rectangle
+from icdar import restore_rectangle, generate_rbox, load_annoataion, check_and_validate_polys
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -112,6 +113,14 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_
 
     return boxes, timer
 
+def tower_loss(score_maps, f_score, geo_maps, f_geometry, training_masks):
+
+    model_loss = model.loss(score_maps, f_score,
+                            geo_maps, f_geometry,
+                            training_masks)
+    total_loss = tf.add_n([model_loss] + tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
+    return total_loss, model_loss
 
 def sort_poly(p):
     min_axis = np.argmin(np.sum(p, axis=1))
@@ -124,7 +133,10 @@ def sort_poly(p):
 
 def main(argv=None):
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
+    if FLAGS.use_gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = "-1"
 
 
     try:
@@ -134,11 +146,20 @@ def main(argv=None):
             raise
 
     with tf.get_default_graph().as_default():
+
+        # Build the computational graph
         input_images = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='input_images')
+        ground_truth_score_maps = tf.placeholder(tf.float32, shape=[None, None, None, 1], name='ground_truth_score_maps')
+        ground_truth_geo_maps = tf.placeholder(tf.float32, shape=[None, None, None, 5], name='ground_truth_geo_maps')
+        ground_truth_training_masks = tf.placeholder(tf.float32, shape=[None, None, None, 1], name='input_training_masks')
         global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
 
         f_score, f_geometry = model.model(input_images, is_training=False)
-
+        # f_score = tf.Print(f_score)
+        total_loss_gt, model_loss_gt = tower_loss(ground_truth_score_maps, f_score, ground_truth_geo_maps, \
+                                  f_geometry, ground_truth_training_masks)
+        # total_loss = tf.Print(total_loss, [total_loss])
+        # model_loss = tf.Print(model_loss, [model_loss])
         variable_averages = tf.train.ExponentialMovingAverage(0.997, global_step)
         saver = tf.train.Saver(variable_averages.variables_to_restore())
 
@@ -151,25 +172,35 @@ def main(argv=None):
             im_fn_list = get_images()
             for im_fn in im_fn_list:
                 im = cv2.imread(im_fn)[:, :, ::-1]
+                im_h, im_w, _ = im.shape
+                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
+                text_polys, text_tags = load_annoataion(txt_fn)
+                text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
+                score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
+                score_map_gt = score_map_gt[::4, ::4, np.newaxis].astype(np.float32)
+                geo_map_gt = geo_map_gt[::4, ::4, :].astype(np.float32)
+                training_mask_gt = training_mask_gt[::4, ::4, np.newaxis].astype(np.float32)
                 start_time = time.time()
                 im_resized, (ratio_h, ratio_w) = resize_image(im)
 
                 timer = {'net': 0, 'restore': 0, 'nms': 0}
                 start = time.time()
-                score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
+                score, geometry, total_loss, model_loss = sess.run([f_score, f_geometry, total_loss_gt, model_loss_gt], \
+                    feed_dict={input_images: [im_resized], ground_truth_score_maps: [score_map_gt], ground_truth_geo_maps: [geo_map_gt], \
+                        ground_truth_training_masks: [training_mask_gt]})
                 timer['net'] = time.time() - start
 
                 boxes, timer = detect(score_map=score, geo_map=geometry, timer=timer)
                 print('{} : net {:.0f}ms, restore {:.0f}ms, nms {:.0f}ms'.format(
                     im_fn, timer['net']*1000, timer['restore']*1000, timer['nms']*1000))
-
+                print('Model loss: {:.2f}, total loss: {:.2f}'.format(model_loss*1000, total_loss*1000))
                 if boxes is not None:
                     boxes = boxes[:, :8].reshape((-1, 4, 2))
                     boxes[:, :, 0] /= ratio_w
                     boxes[:, :, 1] /= ratio_h
 
                 duration = time.time() - start_time
-                print('[timing] {}'.format(duration))
+                print('[timing] {0:.2f}s'.format(duration))
 
                 # save to file
                 if boxes is not None:

@@ -26,8 +26,8 @@ tf.app.flags.DEFINE_integer('min_text_size', 10,
 tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
                           'when doing random crop from input image, the'
                           'min length of min(H, W')
-tf.app.flags.DEFINE_string('geometry', 'RBOX',
-                           'which geometry to generate, RBOX or QUAD')
+# tf.app.flags.DEFINE_string('geometry', 'RBOX',
+#                            'which geometry to generate, RBOX or QUAD')
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -114,11 +114,11 @@ def check_and_validate_polys(polys, tags, xxx_todo_changeme):
 
 def crop_area(im, polys, tags, crop_background=False, max_tries=50):
     '''
-    make random crop from the input image
+    make random crop from the input image. the cropped image should not "go cross" the text region
     :param im:
     :param polys:
     :param tags:
-    :param crop_background:
+    :param crop_background: A flag which indicates that whether to crop the background (without text)
     :param max_tries:
     :return:
     '''
@@ -166,6 +166,7 @@ def crop_area(im, polys, tags, crop_background=False, max_tries=50):
                 return im[ymin:ymax+1, xmin:xmax+1, :], polys[selected_polys], tags[selected_polys]
             else:
                 continue
+        # else: text in this croppped area -> crop
         im = im[ymin:ymax+1, xmin:xmax+1, :]
         polys = polys[selected_polys]
         tags = tags[selected_polys]
@@ -465,7 +466,7 @@ def generate_rbox(im_size, polys, tags):
     poly_mask = np.zeros((h, w), dtype=np.uint8)
     score_map = np.zeros((h, w), dtype=np.uint8)
     geo_map = np.zeros((h, w, 5), dtype=np.float32)
-    # mask used during traning, to ignore some hard areas
+    # training_mask: mask used during traning, to ignore some hard areas
     training_mask = np.ones((h, w), dtype=np.uint8)
     for poly_idx, poly_tag in enumerate(zip(polys, tags)):
         poly = poly_tag[0]
@@ -601,7 +602,7 @@ def generator(input_size=512, batch_size=32,
                 im = cv2.imread(im_fn)
                 # print im_fn
                 h, w, _ = im.shape
-                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[1], 'txt')
+                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
                 if not os.path.exists(txt_fn):
                     print('text file {} does not exists'.format(txt_fn))
                     continue
@@ -629,9 +630,13 @@ def generator(input_size=512, batch_size=32,
                     im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
                     im_padded[:new_h, :new_w, :] = im.copy()
                     im = cv2.resize(im_padded, dsize=(input_size, input_size))
+                    # no text here, so no need to generate rbox
+                    # score_map (for classification): all zeros
                     score_map = np.zeros((input_size, input_size), dtype=np.uint8)
                     geo_map_channels = 5 if FLAGS.geometry == 'RBOX' else 8
+                    # geo_map (for regression): all zeros
                     geo_map = np.zeros((input_size, input_size, geo_map_channels), dtype=np.float32)
+                    # training_mask: all ones
                     training_mask = np.ones((input_size, input_size), dtype=np.uint8)
                 else:
                     im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)

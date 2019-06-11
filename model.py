@@ -104,7 +104,7 @@ def loss(y_true_cls, y_pred_cls,
          y_true_geo, y_pred_geo,
          training_mask):
     '''
-    define the loss used for training, contraning two part,
+    define the loss used for training, containing two part,
     the first part we use dice loss instead of weighted logloss,
     the second part is the iou loss defined in the paper
     :param y_true_cls: ground truth of text

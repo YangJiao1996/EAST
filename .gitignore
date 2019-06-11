@@ -68,6 +68,7 @@ docs/_build/
 target/
 
 # Jupyter Notebook
+*.ipynb
 .ipynb_checkpoints
 
 # pyenv
@@ -105,3 +106,6 @@ ENV/
 
 # result files for demo
 static/results
+
+# visual studio code
+.vscode/
