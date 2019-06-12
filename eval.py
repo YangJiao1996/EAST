@@ -8,7 +8,7 @@ import tensorflow as tf
 import locality_aware_nms as nms_locality
 import lanms
 
-tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', '')
+# tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', '')
 tf.app.flags.DEFINE_bool('use_gpu', False, 'whether to use gpu')
 tf.app.flags.DEFINE_string('gpu_list', '0', '')
 tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_resnet_v1_50_rbox/', '')
@@ -171,6 +171,8 @@ def main(argv=None):
 
             im_fn_list = get_images()
             for im_fn in im_fn_list:
+                timer = {'net': 0, 'restore': 0, 'nms': 0, 'pre_proc': 0}
+                pre_proc_start = time.time()
                 im = cv2.imread(im_fn)[:, :, ::-1]
                 im_h, im_w, _ = im.shape
                 txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
@@ -181,9 +183,8 @@ def main(argv=None):
                 geo_map_gt = geo_map_gt[::4, ::4, :].astype(np.float32)
                 training_mask_gt = training_mask_gt[::4, ::4, np.newaxis].astype(np.float32)
                 start_time = time.time()
+                timer['pre_proc'] = start_time - pre_proc_start
                 im_resized, (ratio_h, ratio_w) = resize_image(im)
-
-                timer = {'net': 0, 'restore': 0, 'nms': 0}
                 start = time.time()
                 score, geometry, total_loss, model_loss = sess.run([f_score, f_geometry, total_loss_gt, model_loss_gt], \
                     feed_dict={input_images: [im_resized], ground_truth_score_maps: [score_map_gt], ground_truth_geo_maps: [geo_map_gt], \
@@ -191,16 +192,18 @@ def main(argv=None):
                 timer['net'] = time.time() - start
 
                 boxes, timer = detect(score_map=score, geo_map=geometry, timer=timer)
-                print('{} : net {:.0f}ms, restore {:.0f}ms, nms {:.0f}ms'.format(
-                    im_fn, timer['net']*1000, timer['restore']*1000, timer['nms']*1000))
-                print('Model loss: {:.2f}, total loss: {:.2f}'.format(model_loss*1000, total_loss*1000))
+                
                 if boxes is not None:
                     boxes = boxes[:, :8].reshape((-1, 4, 2))
                     boxes[:, :, 0] /= ratio_w
                     boxes[:, :, 1] /= ratio_h
 
                 duration = time.time() - start_time
-                print('[timing] {0:.2f}s'.format(duration))
+
+                print('{}:\nPre-processing: {:.0f}ms, Feed-forward: {:.0f}ms, Rectangle-restore: {:.0f}ms, NMS: {:.0f}ms, Total: {:.2f}s'.format\
+                    (im_fn, timer['pre_proc']*1000, timer['net']*1000, timer['restore']*1000, timer['nms']*1000, duration))
+
+                print('Model loss: {:.2f}, total loss: {:.2f}'.format(model_loss*1000, total_loss*1000))
 
                 # save to file
                 if boxes is not None:

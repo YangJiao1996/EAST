@@ -34,19 +34,19 @@ def tower_loss(images, score_maps, geo_maps, training_masks, training_flag, reus
     
     # Print out some debug messages
     score_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(score_maps, [tf.shape(score_maps)], "Shape of score_maps is :", summarize=4),\
+                         lambda: tf.Print(score_maps, [tf.shape(score_maps)], "tf - Shape of score_maps is :", summarize=4),\
                          lambda: tf.identity(score_maps))
     f_score = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_score, [tf.shape(f_score)], "Shape of f_score is :", summarize=4),\
+                         lambda: tf.Print(f_score, [tf.shape(f_score)], "tf - Shape of f_score is :", summarize=4),\
                          lambda: tf.identity(f_score))
     geo_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(geo_maps, [tf.shape(geo_maps)], "Shape of geo_maps is :", summarize=4),\
+                         lambda: tf.Print(geo_maps, [tf.shape(geo_maps)], "tf - Shape of geo_maps is :", summarize=4),\
                          lambda: tf.identity(geo_maps))
     f_geometry = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_geometry, [tf.shape(f_geometry)], "Shape of f_geometry is :", summarize=4),\
+                         lambda: tf.Print(f_geometry, [tf.shape(f_geometry)], "tf - Shape of f_geometry is :", summarize=4),\
                          lambda: tf.identity(f_geometry))
     training_masks = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(training_masks, [tf.shape(training_masks)], "Shape of training_masks is :", summarize=4),\
+                         lambda: tf.Print(training_masks, [tf.shape(training_masks)], "tf - Shape of training_masks is :", summarize=4),\
                          lambda: tf.identity(training_masks))
     model_loss = model.loss(score_maps, f_score,
                             geo_maps, f_geometry,
@@ -176,12 +176,11 @@ def main(argv=None):
         start = time.time()
         for step in range(FLAGS.max_steps):
             training_data = next(training_data_generator)
-            is_training = True
             ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: training_data[0],
                                                                                 input_score_maps: training_data[2],
                                                                                 input_geo_maps: training_data[3],
                                                                                 input_training_masks: training_data[4],
-                                                                                training_flag: is_training})
+                                                                                training_flag: True})
             if np.isnan(tl):
                 print('Loss diverged, stop training')
                 break
@@ -195,11 +194,14 @@ def main(argv=None):
             if step % 100 == 0:
                 test_start = time.time()
                 test_data = next(test_data_generator)
+                print(f"np - Shape of score_maps: {np.array(test_data[2]).shape}")
+                print(f"np - Shape of geo_maps: {np.array(test_data[3]).shape}")
+                print(f"np - Shape of training_masks: {np.array(test_data[4]).shape}")
                 ml_test, tl_test = sess.run([model_loss, total_loss], feed_dict={input_images: test_data[0],
-                                                                       input_score_maps: test_data[2],
-                                                                       input_geo_maps: test_data[3],
-                                                                       input_training_masks: test_data[4],
-                                                                       training_flag: is_training})
+                                                                                 input_score_maps: test_data[2],
+                                                                                 input_geo_maps: test_data[3],
+                                                                                 input_training_masks: test_data[4],
+                                                                                 training_flag: False})
                 test_end = time.time()
                 print('Test loss: model loss {:.4f}, total loss {:.4f}, time elapsed: {:.2f} seconds'\
                     .format(ml_test, tl_test, test_end - test_start))
@@ -212,7 +214,7 @@ def main(argv=None):
                                                                                              input_score_maps: training_data[2],
                                                                                              input_geo_maps: training_data[3],
                                                                                              input_training_masks: training_data[4],
-                                                                                             training_flag: is_training})
+                                                                                             training_flag: True})
                 summary_writer.add_summary(summary_str, global_step=step)
 
 if __name__ == '__main__':

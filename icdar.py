@@ -767,6 +767,7 @@ def generator_test(input_size=512, batch_size=32,
                     image_fns = []
                     score_maps = []
                     geo_maps = []
+                    training_masks = []
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
