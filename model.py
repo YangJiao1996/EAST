@@ -9,6 +9,7 @@ from nets import resnet_v1
 
 FLAGS = tf.app.flags.FLAGS
 
+DEBUG = 1
 
 def unpool(inputs):
     return tf.image.resize_bilinear(inputs, size=[tf.shape(inputs)[1]*2,  tf.shape(inputs)[2]*2])
@@ -114,6 +115,7 @@ def loss(y_true_cls, y_pred_cls,
     :param training_mask: mask used in training, to ignore some text annotated by ###
     :return:
     '''
+    
     classification_loss = dice_coefficient(y_true_cls, y_pred_cls, training_mask)
     # scale classification loss to match the iou loss part
     classification_loss *= 0.01

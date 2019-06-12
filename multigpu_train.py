@@ -5,17 +5,18 @@ from tensorflow.contrib import slim
 
 tf.app.flags.DEFINE_integer('input_size', 512, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
-tf.app.flags.DEFINE_integer('num_readers', 16, '')
+tf.app.flags.DEFINE_integer('num_readers', 8, '')
 tf.app.flags.DEFINE_string('geometry', 'RBOX', '')
 tf.app.flags.DEFINE_float('learning_rate', 0.0001, '')
 tf.app.flags.DEFINE_integer('max_steps', 100000, '')
 tf.app.flags.DEFINE_float('moving_average_decay', 0.997, '')
 tf.app.flags.DEFINE_string('gpu_list', '1', '')
-tf.app.flags.DEFINE_string('checkpoint_path', '/Model/EAST/checkpoints/east_resnet_v1_50_rbox/', '')
+tf.app.flags.DEFINE_string('checkpoint_path', '/Models/EAST/checkpoints/east_resnet_v1_50_rbox/', '')
 tf.app.flags.DEFINE_boolean('restore', False, 'whether to restore from checkpoint')
 tf.app.flags.DEFINE_integer('save_checkpoint_steps', 1000, '')
 tf.app.flags.DEFINE_integer('save_summary_steps', 100, '')
 tf.app.flags.DEFINE_string('pretrained_model_path', None, '')
+tf.app.flags.DEFINE_boolean('debug_flag', False, 'whether to show debug messages')
 
 import model
 import icdar
@@ -25,18 +26,23 @@ FLAGS = tf.app.flags.FLAGS
 gpus = list(range(len(FLAGS.gpu_list.split(','))))
 
 
-def tower_loss(images, score_maps, geo_maps, training_masks, reuse_variables=None):
+def tower_loss(images, score_maps, geo_maps, training_masks, training_flag, reuse_variables=None):
     # Build inference graph
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
-        f_score, f_geometry = model.model(images, is_training=True)
-
+        f_score, f_geometry = model.model(images, is_training=training_flag)
+    if training_flag is not True or FLAGS.debug_flag is True:
+        score_maps = tf.Print(score_maps, [tf.shape(score_maps)], "Shape of score_maps is :", summarize=4)
+        f_score = tf.Print(f_score, [tf.shape(f_score)], "Shape of f_score is :", summarize=4)
+        geo_maps = tf.Print(geo_maps, [tf.shape(geo_maps)], "Shape of geo_maps is :", summarize=4)
+        f_geometry = tf.Print(f_geometry, [tf.shape(f_geometry)], "Shape of f_geometry is :", summarize=4)
+        training_masks = tf.Print(training_masks, [tf.shape(training_masks)], "Shape of training_masks is :", summarize=4)
     model_loss = model.loss(score_maps, f_score,
                             geo_maps, f_geometry,
                             training_masks)
     total_loss = tf.add_n([model_loss] + tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
 
     # add summary
-    if reuse_variables is None:
+    if reuse_variables is None and training_flag is True:
         tf.summary.image('input', images)
         tf.summary.image('score_map', score_maps)
         tf.summary.image('score_map_pred', f_score * 255)
@@ -71,7 +77,7 @@ def main(argv=None):
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
     if not tf.gfile.Exists(FLAGS.checkpoint_path):
-        tf.gfile.MkDir(FLAGS.checkpoint_path)
+        tf.gfile.MakeDirs(FLAGS.checkpoint_path)
     else:
         # TODO: probably not a good practice to delete all checkpoints in the directory
         if not FLAGS.restore:
@@ -85,6 +91,7 @@ def main(argv=None):
     else:
         input_geo_maps = tf.placeholder(tf.float32, shape=[None, None, None, 8], name='input_geo_maps')
     input_training_masks = tf.placeholder(tf.float32, shape=[None, None, None, 1], name='input_training_masks')
+    training_flag = tf.placeholder(tf.bool, shape=(), name="training_flag")
 
     global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
     learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, decay_steps=10000, decay_rate=0.94, staircase=True)
@@ -109,7 +116,7 @@ def main(argv=None):
                 isms = input_score_maps_split[i]
                 igms = input_geo_maps_split[i]
                 itms = input_training_masks_split[i]
-                total_loss, model_loss = tower_loss(iis, isms, igms, itms, reuse_variables)
+                total_loss, model_loss = tower_loss(iis, isms, igms, itms, training_flag, reuse_variables)
                 batch_norm_updates_op = tf.group(*tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope))
                 reuse_variables = True
 
@@ -146,21 +153,26 @@ def main(argv=None):
             if FLAGS.pretrained_model_path is not None:
                 variable_restore_op(sess)
 
-        data_generator = icdar.get_batch(num_workers=FLAGS.num_readers,
+        training_data_generator = icdar.get_batch(num_workers=FLAGS.num_readers,
+                                         input_size=FLAGS.input_size,
+                                         batch_size=FLAGS.batch_size_per_gpu * len(gpus))
+        
+        test_data_generator = icdar.get_batch_test(num_workers=FLAGS.num_readers,
                                          input_size=FLAGS.input_size,
                                          batch_size=FLAGS.batch_size_per_gpu * len(gpus))
 
         start = time.time()
         for step in range(FLAGS.max_steps):
-            data = next(data_generator)
-            ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: data[0],
-                                                                                input_score_maps: data[2],
-                                                                                input_geo_maps: data[3],
-                                                                                input_training_masks: data[4]})
+            training_data = next(training_data_generator)
+            is_training = True
+            ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: training_data[0],
+                                                                                input_score_maps: training_data[2],
+                                                                                input_geo_maps: training_data[3],
+                                                                                input_training_masks: training_data[4],
+                                                                                training_flag: is_training})
             if np.isnan(tl):
                 print('Loss diverged, stop training')
                 break
-
             if step % 10 == 0:
                 avg_time_per_step = (time.time() - start)/10
                 avg_examples_per_second = (10 * FLAGS.batch_size_per_gpu * len(gpus))/(time.time() - start)
@@ -168,14 +180,27 @@ def main(argv=None):
                 print('Step {:06d}, model loss {:.4f}, total loss {:.4f}, {:.2f} seconds/step, {:.2f} examples/second'.format(
                     step, ml, tl, avg_time_per_step, avg_examples_per_second))
 
+            if step % 100 == 0:
+                test_start = time.time()
+                test_data = next(test_data_generator)
+                ml_test, tl_test = sess.run([model_loss, total_loss], feed_dict={input_images: test_data[0],
+                                                                       input_score_maps: test_data[2],
+                                                                       input_geo_maps: test_data[3],
+                                                                       input_training_masks: test_data[4],
+                                                                       training_flag: is_training})
+                test_end = time.time()
+                print('Test loss: model loss {:.4f}, total loss {:.4f}, time elapsed: {:.2f} seconds'\
+                    .format(ml_test, tl_test, test_end - test_start))
+
             if step % FLAGS.save_checkpoint_steps == 0:
                 saver.save(sess, FLAGS.checkpoint_path + 'model.ckpt', global_step=global_step)
 
             if step % FLAGS.save_summary_steps == 0:
-                _, tl, summary_str = sess.run([train_op, total_loss, summary_op], feed_dict={input_images: data[0],
-                                                                                             input_score_maps: data[2],
-                                                                                             input_geo_maps: data[3],
-                                                                                             input_training_masks: data[4]})
+                _, tl, summary_str = sess.run([train_op, total_loss, summary_op], feed_dict={input_images: training_data[0],
+                                                                                             input_score_maps: training_data[2],
+                                                                                             input_geo_maps: training_data[3],
+                                                                                             input_training_masks: training_data[4],
+                                                                                             training_flag: is_training})
                 summary_writer.add_summary(summary_str, global_step=step)
 
 if __name__ == '__main__':

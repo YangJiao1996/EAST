@@ -16,6 +16,8 @@ from data_util import GeneratorEnqueuer
 
 tf.app.flags.DEFINE_string('training_data_path', '/data/ocr/icdar2015/',
                            'training dataset to use')
+tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', \
+                           'test dataset for eval')                           
 tf.app.flags.DEFINE_integer('max_image_large_side', 1280,
                             'max image size of training')
 tf.app.flags.DEFINE_integer('max_text_size', 800,
@@ -33,11 +35,11 @@ tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
 FLAGS = tf.app.flags.FLAGS
 
 
-def get_images():
+def get_images(path):
     files = []
     for ext in ['jpg', 'png', 'jpeg', 'JPG']:
         files.extend(glob.glob(
-            os.path.join(FLAGS.training_data_path, '*.{}'.format(ext))))
+            os.path.join(path, '*.{}'.format(ext))))
     return files
 
 
@@ -182,7 +184,7 @@ def shrink_poly(poly, r):
     fit a poly inside the origin poly, maybe bugs here...
     used for generate the score map
     :param poly: the text poly
-    :param r: r in the paper
+    :param r: reference length r in the paper
     :return: the shrinked poly
     '''
     # shrink ratio
@@ -472,14 +474,6 @@ def generate_rbox(im_size, polys, tags):
         poly = poly_tag[0]
         tag = poly_tag[1]
 
-        r = [None, None, None, None]
-        for i in range(4):
-            r[i] = min(np.linalg.norm(poly[i] - poly[(i + 1) % 4]),
-                       np.linalg.norm(poly[i] - poly[(i - 1) % 4]))
-        # score map
-        shrinked_poly = shrink_poly(poly.copy(), r).astype(np.int32)[np.newaxis, :, :]
-        cv2.fillPoly(score_map, shrinked_poly, 1)
-        cv2.fillPoly(poly_mask, shrinked_poly, poly_idx + 1)
         # if the poly is too small, then ignore it during training
         poly_h = min(np.linalg.norm(poly[0] - poly[3]), np.linalg.norm(poly[1] - poly[2]))
         poly_w = min(np.linalg.norm(poly[0] - poly[1]), np.linalg.norm(poly[2] - poly[3]))
@@ -488,7 +482,16 @@ def generate_rbox(im_size, polys, tags):
         if tag:
             cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
 
+        reference_length = [None, None, None, None]
+        for i in range(4):
+            reference_length[i] = min(np.linalg.norm(poly[i] - poly[(i + 1) % 4]),
+                       np.linalg.norm(poly[i] - poly[(i - 1) % 4]))
+        # score map
+        shrinked_poly = shrink_poly(poly.copy(), reference_length).astype(np.int32)[np.newaxis, :, :]
+        cv2.fillPoly(score_map, shrinked_poly, 1)
+        cv2.fillPoly(poly_mask, shrinked_poly, poly_idx + 1)
         xy_in_poly = np.argwhere(poly_mask == (poly_idx + 1))
+
         # if geometry == 'RBOX':
         # 对任意两个顶点的组合生成一个平行四边形 - generate a parallelogram for any combination of two vertices
         fitted_parallelograms = []
@@ -585,7 +588,7 @@ def generator(input_size=512, batch_size=32,
               background_ratio=3./8,
               random_scale=np.array([0.5, 1, 2.0, 3.0]),
               vis=False):
-    image_list = np.array(get_images())
+    image_list = np.array(get_images(FLAGS.training_data_path))
     print('{} training images in {}'.format(
         image_list.shape[0], FLAGS.training_data_path))
     index = np.arange(0, image_list.shape[0])
@@ -723,6 +726,52 @@ def generator(input_size=512, batch_size=32,
                 traceback.print_exc()
                 continue
 
+def generator_test(input_size=512, batch_size=32,
+              background_ratio=3./8,
+              random_scale=np.array([0.5, 1, 2.0, 3.0])):
+    image_list = np.array(get_images(FLAGS.test_data_path))
+    print('{} test images in {}'.format(
+        image_list.shape[0], FLAGS.test_data_path))
+    index = np.arange(0, image_list.shape[0])
+    while True:
+        np.random.shuffle(index)
+        images = []
+        image_fns = []
+        score_maps = []
+        geo_maps = []
+        training_masks = []
+        for i in index:
+            try:
+                im_fn = image_list[i]
+                im = cv2.imread(im_fn)
+                # print im_fn
+                h, w, _ = im.shape
+                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
+                if not os.path.exists(txt_fn):
+                    print('text file {} does not exists'.format(txt_fn))
+                    continue
+
+                text_polys, text_tags = load_annoataion(txt_fn)
+
+                score_map, geo_map, training_mask = generate_rbox((h, w), text_polys, text_tags)
+
+                images.append(im[:, :, ::-1].astype(np.float32))
+                image_fns.append(im_fn)
+                score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
+                geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
+                training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
+
+                if len(images) == batch_size:
+                    yield images, image_fns, score_maps, geo_maps, training_masks
+                    images = []
+                    image_fns = []
+                    score_maps = []
+                    geo_maps = []
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                continue
+
 
 def get_batch(num_workers, **kwargs):
     try:
@@ -743,7 +792,24 @@ def get_batch(num_workers, **kwargs):
         if enqueuer is not None:
             enqueuer.stop()
 
-
+def get_batch_test(num_workers, **kwargs):
+    try:
+        enqueuer = GeneratorEnqueuer(generator_test(**kwargs), use_multiprocessing=True)
+        print('Generator use 10 batches for buffering, this may take a while, you can tune this yourself.')
+        enqueuer.start(max_queue_size=10, workers=num_workers)
+        generator_output = None
+        while True:
+            while enqueuer.is_running():
+                if not enqueuer.queue.empty():
+                    generator_output = enqueuer.queue.get()
+                    break
+                else:
+                    time.sleep(0.01)
+            yield generator_output
+            generator_output = None
+    finally:
+        if enqueuer is not None:
+            enqueuer.stop()
 
 if __name__ == '__main__':
     pass
