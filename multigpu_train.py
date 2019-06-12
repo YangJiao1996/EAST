@@ -30,12 +30,24 @@ def tower_loss(images, score_maps, geo_maps, training_masks, training_flag, reus
     # Build inference graph
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
         f_score, f_geometry = model.model(images, is_training=training_flag)
-    if training_flag is not True or FLAGS.debug_flag is True:
-        score_maps = tf.Print(score_maps, [tf.shape(score_maps)], "Shape of score_maps is :", summarize=4)
-        f_score = tf.Print(f_score, [tf.shape(f_score)], "Shape of f_score is :", summarize=4)
-        geo_maps = tf.Print(geo_maps, [tf.shape(geo_maps)], "Shape of geo_maps is :", summarize=4)
-        f_geometry = tf.Print(f_geometry, [tf.shape(f_geometry)], "Shape of f_geometry is :", summarize=4)
-        training_masks = tf.Print(training_masks, [tf.shape(training_masks)], "Shape of training_masks is :", summarize=4)
+    print_shape_flag = tf.math.logical_and(tf.math.logical_not(training_flag), FLAGS.debug_flag)
+    
+    # Print out some debug messages
+    score_maps = tf.cond(print_shape_flag, \
+                         lambda: tf.Print(score_maps, [tf.shape(score_maps)], "Shape of score_maps is :", summarize=4),\
+                         lambda: tf.identity(score_maps))
+    f_score = tf.cond(print_shape_flag, \
+                         lambda: tf.Print(f_score, [tf.shape(f_score)], "Shape of f_score is :", summarize=4),\
+                         lambda: tf.identity(f_score))
+    geo_maps = tf.cond(print_shape_flag, \
+                         lambda: tf.Print(geo_maps, [tf.shape(geo_maps)], "Shape of geo_maps is :", summarize=4),\
+                         lambda: tf.identity(geo_maps))
+    f_geometry = tf.cond(print_shape_flag, \
+                         lambda: tf.Print(f_geometry, [tf.shape(f_geometry)], "Shape of f_geometry is :", summarize=4),\
+                         lambda: tf.identity(f_geometry))
+    training_masks = tf.cond(print_shape_flag, \
+                         lambda: tf.Print(training_masks, [tf.shape(training_masks)], "Shape of training_masks is :", summarize=4),\
+                         lambda: tf.identity(training_masks))
     model_loss = model.loss(score_maps, f_score,
                             geo_maps, f_geometry,
                             training_masks)
