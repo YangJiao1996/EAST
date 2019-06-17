@@ -109,3 +109,6 @@ static/results
 
 # visual studio code
 .vscode/
+
+## Profiler imformation
+*.prof*

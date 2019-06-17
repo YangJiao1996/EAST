@@ -14,25 +14,38 @@ import tensorflow as tf
 
 from data_util import GeneratorEnqueuer
 
-tf.app.flags.DEFINE_string('training_data_path', '/data/ocr/icdar2015/',
-                           'training dataset to use')
-tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', \
-                           'test dataset for eval')                           
-tf.app.flags.DEFINE_integer('max_image_large_side', 1280,
-                            'max image size of training')
-tf.app.flags.DEFINE_integer('max_text_size', 800,
-                            'if the text in the input image is bigger than this, then we resize'
-                            'the image according to this')
-tf.app.flags.DEFINE_integer('min_text_size', 10,
-                            'if the text size is smaller than this, we ignore it during training')
-tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
-                          'when doing random crop from input image, the'
-                          'min length of min(H, W')
+# tf.app.flags.DEFINE_string('training_data_path', '/data/ocr/icdar2015/',
+#                            'training dataset to use')
+# tf.app.flags.DEFINE_string('test_data_path', '/tmp/ch4_test_images/images/', \
+#                            'test dataset for eval')                           
+# tf.app.flags.DEFINE_integer('max_image_large_side', 1280,
+#                             'max image size of training')
+# tf.app.flags.DEFINE_integer('max_text_size', 800,
+#                             'if the text in the input image is bigger than this, then we resize'
+#                             'the image according to this')
+# tf.app.flags.DEFINE_integer('min_text_size', 10,
+#                             'if the text size is smaller than this, we ignore it during training')
+# tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
+#                           'when doing random crop from input image, the'
+#                           'min length of min(H, W')
 # tf.app.flags.DEFINE_string('geometry', 'RBOX',
 #                            'which geometry to generate, RBOX or QUAD')
 
 
-FLAGS = tf.app.flags.FLAGS
+class DummyFlags():
+    def __init__(self, training_data_path):
+        self.training_data_path = training_data_path
+        self.test_data_path = '/tmp/ch4_test_images/images/'
+        self.max_image_large_side = 1280
+        self.max_text_size = 800
+        self.min_text_size = 10
+        self.min_crop_side_ratio = 0.1
+        self.geometry = 'RBOX'
+        self.input_size = 512
+
+# FLAGS = tf.app.flags.FLAGS
+
+FLAGS = DummyFlags(r'D:\Datasets\Labels\OCR_image_data\new\test')
 
 
 def get_images(path):
@@ -601,6 +614,7 @@ def generator(input_size=512, batch_size=32,
         training_masks = []
         for i in index:
             try:
+                # print(f'Image No. {i} of {image_list.shape[0]}:')
                 im_fn = image_list[i]
                 im = cv2.imread(im_fn)
                 # print im_fn
@@ -713,7 +727,7 @@ def generator(input_size=512, batch_size=32,
                 score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
                 geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
                 training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
-
+                # print(f"len(images): {len(images)}")
                 if len(images) == batch_size:
                     yield images, image_fns, score_maps, geo_maps, training_masks
                     images = []
