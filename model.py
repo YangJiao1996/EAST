@@ -40,6 +40,7 @@ def model(images, weight_decay=1e-5, is_training=True):
     with slim.arg_scope(pvanet.pvanet_scope(weight_decay=weight_decay, is_training=is_training)):
         with tf.variable_scope('pvanet'):
             _, end_points = pvanet.pvanet(images)
+            print(images)
 
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
         batch_norm_params = {
@@ -76,10 +77,13 @@ def model(images, weight_decay=1e-5, is_training=True):
             # we first use a sigmoid to limit the regression range, and also
             # this is do with the angle map
             F_score = slim.conv2d(g[3], 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None)
+            F_score = tf.identity(F_score, name='F_score')
+            print(F_score)
             # 4 channel of axis aligned bbox and 1 channel rotation angle
             geo_map = slim.conv2d(g[3], 4, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) * FLAGS.text_scale
             angle_map = (slim.conv2d(g[3], 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) - 0.5) * np.pi/2 # angle is between [-45, 45]
-            F_geometry = tf.concat([geo_map, angle_map], axis=-1)
+            F_geometry = tf.concat([geo_map, angle_map], axis=-1, name="F_geometry")
+            print(F_geometry)
 
     return F_score, F_geometry
 

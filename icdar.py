@@ -9,6 +9,7 @@ import scipy.optimize
 import matplotlib.pyplot as plt
 import matplotlib.patches as Patches
 from shapely.geometry import Polygon
+from geo_map_cython_lib import gen_geo_map
 
 import tensorflow as tf
 
@@ -568,19 +569,7 @@ def generate_rbox(im_size, polys, tags):
         rectange = rectangle_from_parallelogram(parallelogram)
         rectange, rotate_angle = sort_rectangle(rectange)
 
-        p0_rect, p1_rect, p2_rect, p3_rect = rectange
-        for y, x in xy_in_poly:
-            point = np.array([x, y], dtype=np.float32)
-            # top
-            geo_map[y, x, 0] = point_dist_to_line(p0_rect, p1_rect, point)
-            # right
-            geo_map[y, x, 1] = point_dist_to_line(p1_rect, p2_rect, point)
-            # down
-            geo_map[y, x, 2] = point_dist_to_line(p2_rect, p3_rect, point)
-            # left
-            geo_map[y, x, 3] = point_dist_to_line(p3_rect, p0_rect, point)
-            # angle
-            geo_map[y, x, 4] = rotate_angle
+        gen_geo_map.gen_geo_map(geo_map, xy_in_poly, rectange, rotate_angle)
     return score_map, geo_map, training_mask
 
 
