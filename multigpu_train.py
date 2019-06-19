@@ -103,7 +103,7 @@ def main(argv=None):
     else:
         input_geo_maps = tf.placeholder(tf.float32, shape=[None, None, None, 8], name='input_geo_maps')
     input_training_masks = tf.placeholder(tf.float32, shape=[None, None, None, 1], name='input_training_masks')
-    training_flag = tf.placeholder(tf.bool, shape=(), name="training_flag")
+    # training_flag = tf.placeholder(tf.bool, shape=(), name="training_flag")
 
     global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
     learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, decay_steps=10000, decay_rate=0.94, staircase=True)
@@ -128,10 +128,10 @@ def main(argv=None):
                 isms = input_score_maps_split[i]
                 igms = input_geo_maps_split[i]
                 itms = input_training_masks_split[i]
-                total_loss, model_loss = tower_loss(iis, isms, igms, itms, training_flag, reuse_variables)
+                total_loss, model_loss = tower_loss(iis, isms, igms, itms, True, reuse_variables)
                 batch_norm_updates_op = tf.group(*tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope))
                 reuse_variables = True
-
+                total_loss_test, model_loss_test = tower_loss(iis, isms, igms, itms, False, reuse_variables)
                 grads = opt.compute_gradients(total_loss)
                 tower_grads.append(grads)
 
@@ -179,8 +179,7 @@ def main(argv=None):
             ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: training_data[0],
                                                                                 input_score_maps: training_data[2],
                                                                                 input_geo_maps: training_data[3],
-                                                                                input_training_masks: training_data[4],
-                                                                                training_flag: True})
+                                                                                input_training_masks: training_data[4]})
             if np.isnan(tl):
                 print('Loss diverged, stop training')
                 break
@@ -197,11 +196,10 @@ def main(argv=None):
                 print(f"np - Shape of score_maps: {np.array(test_data[2]).shape}")
                 print(f"np - Shape of geo_maps: {np.array(test_data[3]).shape}")
                 print(f"np - Shape of training_masks: {np.array(test_data[4]).shape}")
-                ml_test, tl_test = sess.run([model_loss, total_loss], feed_dict={input_images: test_data[0],
+                ml_test, tl_test = sess.run([model_loss_test, total_loss_test], feed_dict={input_images: test_data[0],
                                                                                  input_score_maps: test_data[2],
                                                                                  input_geo_maps: test_data[3],
-                                                                                 input_training_masks: test_data[4],
-                                                                                 training_flag: False})
+                                                                                 input_training_masks: test_data[4]})
                 test_end = time.time()
                 print('Test loss: model loss {:.4f}, total loss {:.4f}, time elapsed: {:.2f} seconds'\
                     .format(ml_test, tl_test, test_end - test_start))
@@ -213,8 +211,7 @@ def main(argv=None):
                 _, tl, summary_str = sess.run([train_op, total_loss, summary_op], feed_dict={input_images: training_data[0],
                                                                                              input_score_maps: training_data[2],
                                                                                              input_geo_maps: training_data[3],
-                                                                                             input_training_masks: training_data[4],
-                                                                                             training_flag: True})
+                                                                                             input_training_masks: training_data[4]})
                 summary_writer.add_summary(summary_str, global_step=step)
 
 if __name__ == '__main__':
