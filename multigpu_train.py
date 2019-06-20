@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-tf.app.flags.DEFINE_integer('input_size', 512, '')
+tf.app.flags.DEFINE_integer('input_size', 224, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
 tf.app.flags.DEFINE_integer('num_readers', 8, '')
 tf.app.flags.DEFINE_string('geometry', 'RBOX', '')
@@ -129,6 +129,8 @@ def main(argv=None):
                 igms = input_geo_maps_split[i]
                 itms = input_training_masks_split[i]
                 total_loss, model_loss = tower_loss(iis, isms, igms, itms, True, reuse_variables)
+                print(f"Model loss: {model_loss}")
+                print(f"Total loss: {total_loss}")
                 batch_norm_updates_op = tf.group(*tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope))
                 reuse_variables = True
                 total_loss_test, model_loss_test = tower_loss(iis, isms, igms, itms, False, reuse_variables)
