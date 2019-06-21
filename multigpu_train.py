@@ -15,6 +15,7 @@ tf.app.flags.DEFINE_string('checkpoint_path', '/Models/EAST/checkpoints/east_res
 tf.app.flags.DEFINE_boolean('restore', False, 'whether to restore from checkpoint')
 tf.app.flags.DEFINE_integer('save_checkpoint_steps', 1000, '')
 tf.app.flags.DEFINE_integer('save_summary_steps', 100, '')
+tf.app.flags.DEFINE_string('pretrained_model', None, '')
 tf.app.flags.DEFINE_string('pretrained_model_path', None, '')
 tf.app.flags.DEFINE_boolean('debug_flag', False, 'whether to show debug messages')
 
@@ -71,16 +72,19 @@ def average_gradients(tower_grads):
     average_grads = []
     for grad_and_vars in zip(*tower_grads):
         grads = []
+        # print(grad_and_vars)
         for g, _ in grad_and_vars:
-            expanded_g = tf.expand_dims(g, 0)
-            grads.append(expanded_g)
+            if g is not None:
+                expanded_g = tf.expand_dims(g, 0)
+                grads.append(expanded_g)
+        # Only a work around solution
+        if grads:
+            grad = tf.concat(grads, 0)
+            grad = tf.reduce_mean(grad, 0)
 
-        grad = tf.concat(grads, 0)
-        grad = tf.reduce_mean(grad, 0)
-
-        v = grad_and_vars[0][1]
-        grad_and_var = (grad, v)
-        average_grads.append(grad_and_var)
+            v = grad_and_vars[0][1]
+            grad_and_var = (grad, v)
+            average_grads.append(grad_and_var)
 
     return average_grads
 
@@ -154,17 +158,21 @@ def main(argv=None):
 
     init = tf.global_variables_initializer()
 
-    if FLAGS.pretrained_model_path is not None:
-        variable_restore_op = slim.assign_from_checkpoint_fn(FLAGS.pretrained_model_path, slim.get_trainable_variables(),
+    if FLAGS.pretrained_model is not None:
+        variable_restore_op = slim.assign_from_checkpoint_fn(FLAGS.pretrained_model, slim.get_trainable_variables(),
                                                              ignore_missing_vars=True)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         if FLAGS.restore:
             print('continue training from previous checkpoint')
             ckpt = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
             saver.restore(sess, ckpt)
+        elif FLAGS.pretrained_model_path is not None:
+            saver = tf.train.import_meta_graph(os.path.join(FLAGS.pretrained_model_path, 'mobilenet_v1_1.0_224.ckpt.meta'))
+            ckpt = tf.train.latest_checkpoint(FLAGS.pretrained_model_path)
+            saver.restore(sess, ckpt)
         else:
             sess.run(init)
-            if FLAGS.pretrained_model_path is not None:
+            if FLAGS.pretrained_model is not None:
                 variable_restore_op(sess)
 
         training_data_generator = icdar.get_batch(num_workers=FLAGS.num_readers,
@@ -177,6 +185,7 @@ def main(argv=None):
 
         start = time.time()
         for step in range(FLAGS.max_steps):
+            print("Getting data...")
             training_data = next(training_data_generator)
             ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: training_data[0],
                                                                                 input_score_maps: training_data[2],

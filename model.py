@@ -39,7 +39,7 @@ def model(images, weight_decay=1e-5, is_training=True):
 
     with slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=is_training)):
         with tf.variable_scope('MobilenetV1'):
-            _, end_points = mobilenet_v1.mobilenet_v1(images)
+            _, end_points = mobilenet_v1.mobilenet_v1_base(images)
             print(images)
 
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
