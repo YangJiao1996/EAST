@@ -37,7 +37,7 @@ def get_images():
     return files
 
 
-def resize_image(im, max_side_len=384):
+def resize_image(im, max_side_len=2400):
     '''
     resize image to a size multiple of 32 which is required by the network
     :param im: the resized image
@@ -72,7 +72,7 @@ def resize_image(im, max_side_len=384):
     return im, (ratio_h, ratio_w)
 
 
-def detect(score_map, geo_map, timer, score_map_thresh=0.75, box_thresh=0.1, nms_thres=0.2):
+def detect(score_map, geo_map, timer, score_map_thresh=0.75, box_thresh=0.1, nms_thres=0.1):
     '''
     restore text boxes from score map and geo map
     :param score_map:
@@ -107,7 +107,7 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.75, box_thresh=0.1, nms
     if boxes.shape[0] == 0:
         return None, timer
 
-    # here we filter some low score boxes by the average score map, this is different from the orginal paper
+    # here we filter some low score boxes by the average score map, which is different from the orginal paper
     for i, box in enumerate(boxes):
         mask = np.zeros_like(score_map, dtype=np.uint8)
         cv2.fillPoly(mask, box[:8].reshape((-1, 4, 2)).astype(np.int32) // 4, 1)
@@ -214,7 +214,7 @@ def main(argv=None):
                 print('{}:\nPre-processing: {:.0f}ms, Feed-forward: {:.0f}ms, Rectangle-restore: {:.0f}ms, NMS: {:.0f}ms, Total: {:.2f}s'.format\
                     (im_fn, timer['pre_proc']*1000, timer['net']*1000, timer['restore']*1000, timer['nms']*1000, duration))
 
-                print('Model loss: {:.2f}, total loss: {:.2f}'.format(model_loss, total_loss))
+                print('Model loss: {:.4f}, total loss: {:.4f}'.format(model_loss, total_loss))
 
                 # save to file
                 if boxes is not None:
