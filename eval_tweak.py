@@ -16,6 +16,7 @@ tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_resnet_v1_50_rbox/', ''
 tf.app.flags.DEFINE_string('output_dir', '/tmp/ch4_test_images/images/', '')
 tf.app.flags.DEFINE_bool('no_write_images', False, 'do not write images')
 tf.app.flags.DEFINE_string('test_path', '', '')
+tf.app.flags.DEFINE_integer('num_threads', 4, 'Number of CPU threads to use')
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -100,7 +101,7 @@ def main(argv=None):
     saver = tf.train.Saver(variable_averages.variables_to_restore())
     if not os.path.exists(FLAGS.output_dir):
         os.makedirs(FLAGS.output_dir)
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, inter_op_parallelism_threads=FLAGS.num_threads)) as sess:
         ckpt_state = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
         model_path = os.path.join(FLAGS.checkpoint_path, os.path.basename(ckpt_state.model_checkpoint_path))
         print('Restore from {}'.format(model_path))
@@ -159,7 +160,7 @@ def main(argv=None):
                 geo_path = os.path.join(FLAGS.output_dir, "geometries")
                 if not os.path.exists(geo_path):
                     os.makedirs(geo_path)
-                geo_file = os.path.join(geo_name, geo_path)
+                geo_file = os.path.join(geo_path, geo_name)
                 if pair_flag:
                     show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
                 else:
