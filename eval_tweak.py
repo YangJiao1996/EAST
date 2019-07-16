@@ -36,17 +36,19 @@ def get_images():
     print('Find {} images'.format(len(files)))
     return files
 
-def show_pairs(image_output, image_gt, save_name):
+def show_pairs(image_output, image_gt, save_name=""):
     fig, axes = plt.subplots(1, 2)
     axes[0].imshow(image_output, cmap='gray')
     axes[1].imshow(image_gt, cmap='gray')
-    plt.savefig(save_name)
-    plt.close()
+    plt.show()
+    # plt.savefig(save_name)
+    # plt.close()
 
-def show_single(image, save_name):
+def show_single(image, save_name=""):
     plt.imshow(image, cmap='gray')
-    plt.savefig(save_name)
-    plt.close()
+    plt.show()
+    # plt.savefig(save_name)
+    # plt.close()
 
 def resize_image(im, max_side_len=2400):
     '''
@@ -106,65 +108,65 @@ def main(argv=None):
         model_path = os.path.join(FLAGS.checkpoint_path, os.path.basename(ckpt_state.model_checkpoint_path))
         print('Restore from {}'.format(model_path))
         saver.restore(sess, model_path)
-        im_fn_list = get_images()
-        for im_fn in im_fn_list:
             # im_fn = FLAGS.image_file
+        im_fn_path = "/home/yjiao/Models/Datasets/categorized/test/"
+        im_fn_name = r"%Datasets%new%labeled%hc001.png"
+        im_fn = os.path.join(im_fn_path, im_fn_name)
+        print(f"Processing {os.path.basename(im_fn)}...")
+        imread_start = time.time()
+        im = cv2.imread(im_fn)
+        imread_end = time.time()
+        imread_time = (imread_end - imread_start) * 1000
+        im_h, im_w, _ = im.shape
+        
+        pair_flag = False
+        txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
+        if os.path.exists(txt_fn):
+            pair_flag = True
+            text_polys, text_tags = load_annoataion(txt_fn)
+            text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
+            score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
 
-            print(f"Processing {os.path.basename(im_fn)}...")
-            imread_start = time.time()
-            im = cv2.imread(im_fn)
-            imread_end = time.time()
-            imread_time = (imread_end - imread_start) * 1000
-            im_h, im_w, _ = im.shape
-            
-            pair_flag = False
-            txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
-            if os.path.exists(txt_fn):
-                pair_flag = True
-                text_polys, text_tags = load_annoataion(txt_fn)
-                text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
-                score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
+        im_resized, (ratio_h, ratio_w) = resize_image(im, max_side_len=384)
+        
+        network_fw_start = time.time()
+        score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
+        network_fw_end = time.time()
+        network_fw_time = (network_fw_end - network_fw_start) * 1000
+        print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward time {network_fw_time:.2f}ms.")
+        
+        # boxes = detect(score_map=score, geo_map=geometry)
+        if len(score.shape) == 4:
+            score = score[0, :, :, 0]
+            geometry = geometry[0, :, :, ]
+        # filter the score map
+        xy_text = np.argwhere(score > 0.75)
+        # sort the text boxes via the y axis
+        xy_text = xy_text[np.argsort(xy_text[:, 0])]
+        score_filtered = score > 0.75
+        geometry_filtered = geometry * score_filtered[:, :, np.newaxis]
 
-            im_resized, (ratio_h, ratio_w) = resize_image(im, max_side_len=384)
-            
-            network_fw_start = time.time()
-            score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
-            network_fw_end = time.time()
-            network_fw_time = (network_fw_end - network_fw_start) * 1000
-            print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward time {network_fw_time:.2f}ms.")
-            
-            # boxes = detect(score_map=score, geo_map=geometry)
-            if len(score.shape) == 4:
-                score = score[0, :, :, 0]
-                geometry = geometry[0, :, :, ]
-            # filter the score map
-            xy_text = np.argwhere(score > 0.75)
-            # sort the text boxes via the y axis
-            xy_text = xy_text[np.argsort(xy_text[:, 0])]
-            score_filtered = score > 0.75
-            geometry_filtered = geometry * score_filtered[:, :, np.newaxis]
-
-            im_fn_base, _ = os.path.splitext(os.path.basename(im_fn))
-            
-            score_name = im_fn_base + "_score.png"
-            score_path = os.path.join(FLAGS.output_dir, "scores")
-            if not os.path.exists(score_path):
-                os.makedirs(score_path)
-            score_file = os.path.join(score_path, score_name)
+        im_fn_base, _ = os.path.splitext(os.path.basename(im_fn))
+        show_pairs(im, im_resized)
+        score_name = im_fn_base + "_score.png"
+        score_path = os.path.join(FLAGS.output_dir, "scores")
+        if not os.path.exists(score_path):
+            os.makedirs(score_path)
+        score_file = os.path.join(score_path, score_name)
+        if pair_flag:
+            show_pairs(score_map_gt, score_filtered, score_file)
+        else:
+            show_single(score_filtered, score_file)
+        for idx in range(5):
+            geo_name = im_fn_base + "_geo" + str(idx) + ".png"
+            geo_path = os.path.join(FLAGS.output_dir, "geometries")
+            if not os.path.exists(geo_path):
+                os.makedirs(geo_path)
+            geo_file = os.path.join(geo_path, geo_name)
             if pair_flag:
-                show_pairs(score_map_gt, score_filtered, score_file)
+                show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
             else:
-                show_single(score_filtered, score_file)
-            for idx in range(5):
-                geo_name = im_fn_base + "_geo" + str(idx) + ".png"
-                geo_path = os.path.join(FLAGS.output_dir, "geometries")
-                if not os.path.exists(geo_path):
-                    os.makedirs(geo_path)
-                geo_file = os.path.join(geo_path, geo_name)
-                if pair_flag:
-                    show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
-                else:
-                    show_single(geometry_filtered[:, :, idx], geo_file)
+                show_single(geometry_filtered[:, :, idx], geo_file)
 
         
 
