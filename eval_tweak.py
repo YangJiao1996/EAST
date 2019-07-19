@@ -208,7 +208,7 @@ def main(argv=None):
             text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
             score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
 
-            resized_image, resized_polylabels, resized_height, resized_width = resize_by_input_size(im, text_polys)
+            im_gt_resized, resized_polylabels, resized_height, resized_width = resize_by_input_size(im, text_polys)
             score_map_rz, geo_map_rz, training_mask_rz = generate_rbox((resized_height, resized_width),\
                 resized_polylabels, text_tags)
 
@@ -242,7 +242,7 @@ def main(argv=None):
         xy_text = xy_text[np.argsort(xy_text[:, 0])]
         score_filtered = score > 0.75
         geometry_filtered = geometry * score_filtered[:, :, np.newaxis]
-        save_resize_stats(im, resized_image, im_resized, geo_map_gt, geo_map_rz, geometry_filtered)
+        save_resize_stats(im, im_gt_resized, im_resized, geo_map_gt, geo_map_rz, geometry_filtered)
         im_fn_base, _ = os.path.splitext(os.path.basename(im_fn))
         show_pairs(im, im_resized)
         score_name = im_fn_base + "_score.png"
