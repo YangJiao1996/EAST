@@ -36,20 +36,8 @@ def get_images():
                 if filename.endswith(ext):
                     files.append(os.path.join(parent, filename))
                     break
-    print('Find {} images'.format(len(files)))
+    print(f'Find {len(files)} images')
     return files
-
-def resize_by_input_size(image, labels_polygon, input_size=512):
-    original_height, original_width, _ = image.shape
-    resized_height = input_size
-    resized_width = input_size
-    resized_ratio_width = resized_width / original_width
-    resized_ratio_height = resized_height / original_height
-    resized_image = cv2.resize(image, dsize=(resized_width, resized_height))
-    labels_polygon[:, :, 0] *= resized_ratio_width
-    labels_polygon[:, :, 1] *= resized_ratio_height
-    return image, labels_polygon, resized_height, resized_width
-    
 
 def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.01, nms_thres=0.1):
     '''
@@ -64,13 +52,13 @@ def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.01, nms_thres
     if len(score_map.shape) == 4:
         score_map = score_map[0, :, :, 0]
         geo_map = geo_map[0, :, :, ]
-        geo_map[:, :, 0:4] /= 2
+        # geo_map[:, :, 0:4] /= 2
     # filter the score map
     xy_text = np.argwhere(score_map > score_map_thresh)
     # sort the text boxes via the y axis
     xy_text = xy_text[np.argsort(xy_text[:, 0])]
     text_box_restored = restore_rectangle(xy_text[:, ::-1]*4, geo_map[xy_text[:, 0], xy_text[:, 1], :]) # N*4*2
-    print('{} text boxes before nms'.format(text_box_restored.shape[0]))
+    print(f'{text_box_restored.shape[0]} text boxes before nms')
     boxes = np.zeros((text_box_restored.shape[0], 9), dtype=np.float32)
     boxes[:, :8] = text_box_restored.reshape((-1, 8))
     boxes[:, 8] = score_map[xy_text[:, 0], xy_text[:, 1]]
@@ -94,8 +82,8 @@ def show_pairs(image_output, image_gt, save_name=""):
     axes[0].imshow(image_output, cmap='gray')
     axes[1].imshow(image_gt, cmap='gray')
     plt.show()
-    # plt.savefig(save_name)
-    # plt.close()
+    plt.savefig(save_name)
+    plt.close()
 
 def show_all(score_gt, score_rz, score_out, geo_map_gt, geo_map_rz, geo_map, save_name=""):
     fig, axes = plt.subplots(6, 3)
@@ -108,18 +96,12 @@ def show_all(score_gt, score_rz, score_out, geo_map_gt, geo_map_rz, geo_map, sav
         axes[idx][2].imshow(geo_map[:, :, idx-1], cmap='gray')
     plt.show()
 
-def show_threes(image_output, image_resize, image_gt, save_name=""):
-    fig, axes = plt.subplots(1, 3)
-    axes[0].imshow(image_output, cmap='gray')
-    axes[2].imshow(image_gt, cmap='gray')
-    axes[1].imshow(image_resize, cmap='gray')
-    plt.show()
 
 def show_single(image, save_name=""):
     plt.imshow(image, cmap='gray')
     plt.show()
-    # plt.savefig(save_name)
-    # plt.close()
+    plt.savefig(save_name)
+    plt.close()
 
 def resize_image(im, max_side_len=2400):
     '''
@@ -141,33 +123,21 @@ def resize_image(im, max_side_len=2400):
         ratio = float(max_side_len) / resize_h if resize_h > resize_w else float(max_side_len) / resize_w
     else:
         ratio = 1.
-    resize_h = int(resize_h * ratio)
-    resize_w = int(resize_w * ratio)
+    resize_h = round(resize_h * ratio)
+    resize_w = round(resize_w * ratio)
 
-    resize_h = resize_h if resize_h % 32 == 0 else (resize_h // 32 - 1) * 32
-    resize_w = resize_w if resize_w % 32 == 0 else (resize_w // 32 - 1) * 32
+    resize_h = resize_h if resize_h % 32 == 0 else round(resize_h / 32) * 32
+    resize_w = resize_w if resize_w % 32 == 0 else round(resize_w / 32) * 32
     resize_h = max(32, resize_h)
     resize_w = max(32, resize_w)
     im = cv2.resize(im, (int(resize_w), int(resize_h)))
 
     ratio_h = resize_h / float(h)
     ratio_w = resize_w / float(w)
-
+    print(f"Resize ratio of height: {ratio_h}")
+    print(f"Resize ratio of width: {ratio_w}")
     return im, (ratio_h, ratio_w)
 
-def save_resize_stats(img_gt, img_gt_resized, img_in_resized, geo_map_gt, geo_map_rz, geo_map):
-    img_gt_height, img_gt_width, _ = img_gt.shape
-    img_rz_height, img_rz_width, _ = img_gt_resized.shape
-    img_in_height, img_in_width, _ = img_in_resized.shape
-    bbox_gt_height = geo_map_gt[:, :, 0].max()
-    bbox_gt_width = geo_map_gt[:, :, 1].max()
-    bbox_rz_height = geo_map_rz[:, :, 0].max()
-    bbox_rz_width = geo_map_rz[:, :, 1].max()
-    bbox_out_height = geo_map[:, :, 0].max()
-    bbox_out_width = geo_map[:, :, 1].max()
-    print(f" D[0]-Input-Org: {bbox_gt_height},  D[1]-Input-Org: {bbox_gt_width}")
-    print(f"D[0]-Resize-512: {bbox_rz_height}, D[1]-Resize-512: {bbox_rz_width}")
-    print(f"D[0]-Output-Ogn: {bbox_out_height}, D[1]-Output-Ogn: {bbox_out_width}")
 
 def main(argv=None):
     if FLAGS.use_gpu:
@@ -181,24 +151,25 @@ def main(argv=None):
     global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
 
     f_score, f_geometry = model.model(input_images, is_training=False)
-
     variable_averages = tf.train.ExponentialMovingAverage(0.997, global_step)
     saver = tf.train.Saver(variable_averages.variables_to_restore())
+
     if not os.path.exists(FLAGS.output_dir):
         os.makedirs(FLAGS.output_dir)
+
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, inter_op_parallelism_threads=FLAGS.num_threads)) as sess:
         ckpt_state = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
         model_path = os.path.join(FLAGS.checkpoint_path, os.path.basename(ckpt_state.model_checkpoint_path))
-        print('Restore from {}'.format(model_path))
+        print(f'Restore from {model_path}')
         saver.restore(sess, model_path)
-            # im_fn = FLAGS.image_file
+        
         im_fn = os.path.join(FLAGS.test_path, FLAGS.im_name)
         print(f"Processing {os.path.basename(im_fn)}...")
         imread_start = time.time()
-        im = cv2.imread(im_fn)
+        im_original = cv2.imread(im_fn)
         imread_end = time.time()
         imread_time = (imread_end - imread_start) * 1000
-        im_h, im_w, _ = im.shape
+        im_h, im_w, _ = im_original.shape
         
         pair_flag = False
         txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
@@ -208,50 +179,47 @@ def main(argv=None):
             text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
             score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
 
-            im_gt_resized, resized_polylabels, resized_height, resized_width = resize_by_input_size(im, text_polys)
-            score_map_rz, geo_map_rz, training_mask_rz = generate_rbox((resized_height, resized_width),\
-                resized_polylabels, text_tags)
-
-        im_resized, (ratio_h, ratio_w) = resize_image(im, max_side_len=384)
+        im_resized, (ratio_h, ratio_w) = resize_image(im_original, max_side_len=384)
         
         network_fw_start = time.time()
         score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
         network_fw_end = time.time()
         network_fw_time = (network_fw_end - network_fw_start) * 1000
-        print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward time {network_fw_time:.2f}ms.")
-
-
-
+        
+        post_processing_start = time.time()
         boxes = detect(score_map=score, geo_map=geometry)
+        post_processing_end = time.time()
+        post_processing_time = (post_processing_end-post_processing_start) * 1000
+        print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward: {network_fw_time:.2f}ms; post processing: {post_processing_time:.2f}ms.")
+
         fig = plt.figure(figsize=(15, 15))
         ax = fig.add_subplot(111)
         fig.subplots_adjust(wspace=0, hspace=0)
-        plt.imshow(im_resized, cmap='gray')
-        for box in boxes:
-            polygon = [box[0:2], box[2:4], box[4:6], box[6:8]]
-            poly = patches.Polygon(polygon, linewidth=2, edgecolor='g', facecolor='none')
-            ax.add_patch(poly)
+        plt.imshow(im_original, cmap='gray')
+        if boxes is not None:
+            for box in boxes:
+                boxes = boxes[:, :8].reshape((-1, 4, 2))
+                boxes[:, :, 0] /= ratio_w
+                boxes[:, :, 1] /= ratio_h
+                poly = patches.Polygon(boxes, linewidth=2, edgecolor='g', facecolor='none')
+                ax.add_patch(poly)
             
         plt.show()
         if len(score.shape) == 4:
             score = score[0, :, :, 0]
             geometry = geometry[0, :, :, ]
-        # filter the score map
-        xy_text = np.argwhere(score > 0.75)
-        # sort the text boxes via the y axis
-        xy_text = xy_text[np.argsort(xy_text[:, 0])]
+
         score_filtered = score > 0.75
         geometry_filtered = geometry * score_filtered[:, :, np.newaxis]
-        save_resize_stats(im, im_gt_resized, im_resized, geo_map_gt, geo_map_rz, geometry_filtered)
         im_fn_base, _ = os.path.splitext(os.path.basename(im_fn))
-        show_pairs(im, im_resized)
+        show_pairs(im_original, im_resized)
         score_name = im_fn_base + "_score.png"
         score_path = os.path.join(FLAGS.output_dir, "scores")
         if not os.path.exists(score_path):
             os.makedirs(score_path)
         score_file = os.path.join(score_path, score_name)
         if pair_flag:
-            show_threes(score_map_gt, score_map_rz, score_filtered, score_file)
+            show_pairs(score_map_gt, score_filtered, score_file)
         else:
             show_single(score_filtered, score_file)
         for idx in range(5):
@@ -261,7 +229,7 @@ def main(argv=None):
                 os.makedirs(geo_path)
             geo_file = os.path.join(geo_path, geo_name)
             if pair_flag:
-                show_threes(geo_map_gt[:, :, idx], geo_map_rz[:, :, idx], geometry_filtered[:, :, idx], geo_file)
+                show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
             else:
                 show_single(geometry_filtered[:, :, idx], geo_file)
 

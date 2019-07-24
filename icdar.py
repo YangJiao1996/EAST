@@ -189,7 +189,7 @@ def shrink_poly(poly, r):
     :return: the shrinked poly
     '''
     # shrink ratio
-    R = 0.3
+    R = 0.15
     # find the longer pair
     if np.linalg.norm(poly[0] - poly[1]) + np.linalg.norm(poly[2] - poly[3]) > \
                     np.linalg.norm(poly[0] - poly[3]) + np.linalg.norm(poly[1] - poly[2]):
@@ -675,7 +675,7 @@ def generator(input_size=512, batch_size=32,
                     h, w, _ = im.shape
 
                     # pad the image to the training input size or the longer side of image
-
+                    new_h, new_w, _ = im.shape
                     max_h_w_i = np.max([new_h, new_w, input_size])
                     im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
                     im_padded[:new_h, :new_w, :] = im.copy()
