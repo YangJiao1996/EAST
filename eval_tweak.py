@@ -66,16 +66,16 @@ def main(argv=None):
             score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
             network_fw_end = time.time()
             network_fw_time = (network_fw_end - network_fw_start) * 1000
-            print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward time {network_fw_time:.2f}ms.")
             
+            
+            post_proc_start = time.time()
             boxes = eval_utils.detect(score_map=score, geo_map=geometry)
+            post_proc_end = time.time()
+            post_proc_time = (post_proc_end - post_proc_start) * 1000
+            print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward: {network_fw_time:.2f}ms; post-processing: {post_proc_time:.2f}ms.")
             if len(score.shape) == 4:
                 score = score[0, :, :, 0]
                 geometry = geometry[0, :, :, ]
-            # filter the score map
-            xy_text = np.argwhere(score > 0.75)
-            # sort the text boxes via the y axis
-            xy_text = xy_text[np.argsort(xy_text[:, 0])]
             score_filtered = score > 0.75
             geometry_filtered = geometry * score_filtered[:, :, np.newaxis]
 
@@ -102,12 +102,21 @@ def main(argv=None):
                     eval_utils.show_single(geometry_filtered[:, :, idx], geo_file)
 
             if boxes is not None:
+                boxes = boxes[:, :8].reshape((-1, 4, 2))
+                boxes[:, :, 0] /= ratio_w
+                boxes[:, :, 1] /= ratio_h
                 res_path = os.path.join(FLAGS.output_dir, "boxes")
                 res_name = im_fn_base + "_box.png"
                 res_file = os.path.join(res_path, res_name)
+                crp_path = os.path.join(FLAGS.output_dir, "cropped")
+                crp_name = im_fn_base
+                crp_file = os.path.join(crp_path, crp_name)
                 if not os.path.exists(res_path):
                     os.makedirs(res_path)
-                eval_utils.show_polygons(im_resized, boxes, res_file)
+                if not os.path.exists(crp_path):
+                    os.makedirs(crp_path)
+                eval_utils.show_polygons(im, boxes, res_file)
+                eval_utils.show_cropped(im, boxes, crp_file)
 
 
 

@@ -83,7 +83,6 @@ def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.075, nms_thre
     if len(score_map.shape) == 4:
         score_map = score_map[0, :, :, 0]
         geo_map = geo_map[0, :, :, ]
-        geo_map[:, :, 0:4] /= 2
     # filter the score map
     xy_text = np.argwhere(score_map > score_map_thresh)
     # sort the text boxes via the y axis
@@ -121,11 +120,45 @@ def sort_poly(p):
 def show_polygons(img, boxes, save_name):
     fig = plt.figure(figsize=(15, 15))
     ax = fig.add_subplot(111)
+    ax.set_axis_off()
     fig.subplots_adjust(wspace=0, hspace=0)
     plt.imshow(img, cmap='gray')
     for box in boxes:
-        polygon = [box[0:2], box[2:4], box[4:6], box[6:8]]
-        poly = patches.Polygon(polygon, linewidth=2, edgecolor='g', facecolor='none')
+        poly = patches.Polygon(box, linewidth=3, edgecolor='y', facecolor='none')
         ax.add_patch(poly)
     plt.savefig(save_name)
     plt.close()
+
+def show_cropped(img, boxes, save_name):
+    for i, box in enumerate(boxes):
+        my_dpi = 300
+        rect = cv2.minAreaRect(box)
+        im_crop = crop_rect(img, rect)
+        rect_height, rect_width, _ = im_crop.shape
+        fig = plt.figure(figsize=(rect_width/my_dpi, rect_height/my_dpi), frameon=False, dpi=my_dpi)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        ax.imshow(im_crop, cmap='gray')
+        save_name = save_name + f"_box_{i}.png"
+        plt.savefig(save_name)
+        plt.close()
+
+def crop_rect(img, rect):
+    # Taken from https://jdhao.github.io/2019/02/23/crop_rotated_rectangle_opencv/
+    # get the parameter of the small rectangle
+    box = cv2.boxPoints(rect)
+    rect_width = int(rect[1][0])
+    rect_height = int(rect[1][1])
+    src_pts = box.astype("float32")
+    dst_pts = np.array([[0, rect_height-1],
+                        [0, 0],
+                        [rect_width-1, 0],
+                        [rect_width-1, rect_height-1]], dtype="float32")
+
+
+    M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+    # rotate the original image
+    img_crop = cv2.warpPerspective(img, M, (rect_width, rect_height))
+
+    return img_crop
