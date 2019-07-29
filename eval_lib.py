@@ -77,6 +77,11 @@ class EASTEval():
                 print(f"Directory {output_dirs[category_to_check]} exists or created.")
 
     def feed_network(self):
+        """ Run the forward pass of the algorithm
+        
+        Returns:
+            bounding_boxes {np.array} -- Reshaped bounding boxes
+        """
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
             # Restore the model from checkpoint
@@ -109,12 +114,15 @@ class EASTEval():
                 
                 score_map, geo_map = sess.run([self.output_score, self.output_geometry], 
                                      feed_dict={input_images: [image_resized]})
-                self.bounding_boxes = restore_bbox(score_map, geo_map)
+                bounding_boxes = restore_bbox(score_map, geo_map)
 
-                if self.bounding_boxes is not None:
+                if bounding_boxes is not None:
                     bounding_boxes = bounding_boxes.reshape((-1, 4, 2))
                     bounding_boxes[:, :, 0] /= resized_ratio_width
                     bounding_boxes[:, :, 1] /= resized_ratio_height
+                    return bounding_boxes
+                else:
+                    return None
                 
 
 
