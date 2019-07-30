@@ -7,6 +7,7 @@ import locality_aware_nms as nms_locality
 import matplotlib.patches as patches
 import lanms
 import time
+import eval_utils
 import csv
 
 import model
@@ -22,6 +23,7 @@ tf.app.flags.DEFINE_integer('num_threads', 4, 'Number of CPU threads to use')
 tf.app.flags.DEFINE_string('im_name', '', 'File name of the test image')
 
 FLAGS = tf.app.flags.FLAGS
+
 
 def get_images():
     '''
@@ -229,15 +231,10 @@ def main(argv=None):
                 os.makedirs(geo_path)
             geo_file = os.path.join(geo_path, geo_name)
             if pair_flag:
+
                 show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
             else:
                 show_single(geometry_filtered[:, :, idx], geo_file)
-
-        
-
-
-
-        
 
 
 if __name__ == '__main__':

@@ -401,6 +401,7 @@ def generate_rbox(im_size, polys, tags):
         rectangle_coords, rotate_angle = sort_rectangle(rectangle_coords)
 
         gen_geo_map.gen_geo_map(geo_map, xy_in_poly, rectangle_coords, rotate_angle)
+
     return score_map, geo_map, training_mask
 
 
