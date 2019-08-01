@@ -54,7 +54,7 @@ def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.01, nms_thres
     if len(score_map.shape) == 4:
         score_map = score_map[0, :, :, 0]
         geo_map = geo_map[0, :, :, ]
-        # geo_map[:, :, 0:4] /= 2
+
     # filter the score map
     xy_text = np.argwhere(score_map > score_map_thresh)
     # sort the text boxes via the y axis
@@ -136,8 +136,7 @@ def resize_image(im, max_side_len=2400):
 
     ratio_h = resize_h / float(h)
     ratio_w = resize_w / float(w)
-    print(f"Resize ratio of height: {ratio_h}")
-    print(f"Resize ratio of width: {ratio_w}")
+    
     return im, (ratio_h, ratio_w)
 
 
@@ -194,19 +193,6 @@ def main(argv=None):
         post_processing_time = (post_processing_end-post_processing_start) * 1000
         print(f"Time elapsed in imread(): {imread_time:.2f}ms; network forward: {network_fw_time:.2f}ms; post processing: {post_processing_time:.2f}ms.")
 
-        fig = plt.figure(figsize=(15, 15))
-        ax = fig.add_subplot(111)
-        fig.subplots_adjust(wspace=0, hspace=0)
-        plt.imshow(im_original, cmap='gray')
-        if boxes is not None:
-            for box in boxes:
-                boxes = boxes[:, :8].reshape((-1, 4, 2))
-                boxes[:, :, 0] /= ratio_w
-                boxes[:, :, 1] /= ratio_h
-                poly = patches.Polygon(boxes, linewidth=2, edgecolor='g', facecolor='none')
-                ax.add_patch(poly)
-            
-        plt.show()
         if len(score.shape) == 4:
             score = score[0, :, :, 0]
             geometry = geometry[0, :, :, ]

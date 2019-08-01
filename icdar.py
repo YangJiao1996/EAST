@@ -8,7 +8,8 @@ import numpy as np
 import scipy.optimize
 import matplotlib.pyplot as plt
 import matplotlib.patches as Patches
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, LinearRing
+from shapely.algorithms import cga
 from geo_map_cython_lib import gen_geo_map
 
 import tensorflow as tf
@@ -69,23 +70,7 @@ def load_annoataion(p):
                 text_tags.append(False)
         return np.array(text_polys, dtype=np.float32), np.array(text_tags, dtype=np.bool)
 
-
-def polygon_area(poly):
-    '''
-    compute area of a polygon
-    :param poly:
-    :return:
-    '''
-    edge = [
-        (poly[1][0] - poly[0][0]) * (poly[1][1] + poly[0][1]),
-        (poly[2][0] - poly[1][0]) * (poly[2][1] + poly[1][1]),
-        (poly[3][0] - poly[2][0]) * (poly[3][1] + poly[2][1]),
-        (poly[0][0] - poly[3][0]) * (poly[0][1] + poly[3][1])
-    ]
-    return np.sum(edge)/2.
-
-
-def check_and_validate_polys(polys, tags, xxx_todo_changeme):
+def check_and_validate_polys(polys, tags, height_width):
     '''
     check so that the text poly is in the same direction,
     and also filter some invalid polygons
@@ -93,7 +78,7 @@ def check_and_validate_polys(polys, tags, xxx_todo_changeme):
     :param tags:
     :return:
     '''
-    (h, w) = xxx_todo_changeme
+    (h, w) = height_width
     if polys.shape[0] == 0:
         return polys
     polys[:, :, 0] = np.clip(polys[:, :, 0], 0, w-1)
@@ -102,13 +87,12 @@ def check_and_validate_polys(polys, tags, xxx_todo_changeme):
     validated_polys = []
     validated_tags = []
     for poly, tag in zip(polys, tags):
-        p_area = polygon_area(poly)
-        if abs(p_area) < 1:
+        poly_ring = LinearRing(poly)
+        if abs(cga.signed_area(poly_ring)) < 1:
             # print poly
-            print('invalid poly')
+            print('Invalid polygon: too small')
             continue
-        if p_area > 0:
-            print('poly in wrong direction')
+        if cga.signed_area(poly_ring) < 0:
             poly = poly[(0, 3, 2, 1), :]
         validated_polys.append(poly)
         validated_tags.append(tag)
@@ -247,7 +231,6 @@ def shrink_poly(poly, r):
     return poly
 
 def sort_rectangle(poly):
-    # TODO: Also no solutions for cases where orientation > 180
     # sort the four coordinates of the polygon, points in poly should be sorted clockwise
     # First find the lowest point
     p_lowest = np.argmax(poly[:, 1])
@@ -282,90 +265,24 @@ def sort_rectangle(poly):
             return poly[[p0_index, p1_index, p2_index, p3_index]], angle
 
 
-def restore_rectangle_rbox(origin, geometry):
-    d = geometry[:, :4]
-    angle = geometry[:, 4]
-    # for angle > 0
-    origin_0 = origin[angle >= 0]
-    d_0 = d[angle >= 0]
-    angle_0 = angle[angle >= 0]
-    if origin_0.shape[0] > 0:
-        p = np.array([np.zeros(d_0.shape[0]), -d_0[:, 0] - d_0[:, 2],
-                      d_0[:, 1] + d_0[:, 3], -d_0[:, 0] - d_0[:, 2],
-                      d_0[:, 1] + d_0[:, 3], np.zeros(d_0.shape[0]),
-                      np.zeros(d_0.shape[0]), np.zeros(d_0.shape[0]),
-                      d_0[:, 3], -d_0[:, 2]])
-        p = p.transpose((1, 0)).reshape((-1, 5, 2))  # N*5*2
-
-        rotate_matrix_x = np.array([np.cos(angle_0), np.sin(angle_0)]).transpose((1, 0))
-        rotate_matrix_x = np.repeat(rotate_matrix_x, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))  # N*5*2
-
-        rotate_matrix_y = np.array([-np.sin(angle_0), np.cos(angle_0)]).transpose((1, 0))
-        rotate_matrix_y = np.repeat(rotate_matrix_y, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))
-
-        p_rotate_x = np.sum(rotate_matrix_x * p, axis=2)[:, :, np.newaxis]  # N*5*1
-        p_rotate_y = np.sum(rotate_matrix_y * p, axis=2)[:, :, np.newaxis]  # N*5*1
-
-        p_rotate = np.concatenate([p_rotate_x, p_rotate_y], axis=2)  # N*5*2
-
-        p3_in_origin = origin_0 - p_rotate[:, 4, :]
-        new_p0 = p_rotate[:, 0, :] + p3_in_origin  # N*2
-        new_p1 = p_rotate[:, 1, :] + p3_in_origin
-        new_p2 = p_rotate[:, 2, :] + p3_in_origin
-        new_p3 = p_rotate[:, 3, :] + p3_in_origin
-
-        new_p0_newaxis = new_p0[:, np.newaxis, :]
-        new_p1_newaxis = new_p1[:, np.newaxis, :]
-        new_p2_newaxis = new_p2[:, np.newaxis, :]
-        new_p3_newaxis = new_p3[:, np.newaxis, :]
-
-        new_p_0 = np.concatenate([new_p0[:, np.newaxis, :], new_p1[:, np.newaxis, :],
-                                  new_p2[:, np.newaxis, :], new_p3[:, np.newaxis, :]], axis=1)  # N*4*2
-    else:
-        new_p_0 = np.zeros((0, 4, 2))
-    # for angle < 0
-    origin_1 = origin[angle < 0]
-    d_1 = d[angle < 0]
-    angle_1 = angle[angle < 0]
-    if origin_1.shape[0] > 0:
-        p = np.array([-d_1[:, 1] - d_1[:, 3], -d_1[:, 0] - d_1[:, 2],
-                      np.zeros(d_1.shape[0]), -d_1[:, 0] - d_1[:, 2],
-                      np.zeros(d_1.shape[0]), np.zeros(d_1.shape[0]),
-                      -d_1[:, 1] - d_1[:, 3], np.zeros(d_1.shape[0]),
-                      -d_1[:, 1], -d_1[:, 2]])
-        p = p.transpose((1, 0)).reshape((-1, 5, 2))  # N*5*2
-
-        rotate_matrix_x = np.array([np.cos(-angle_1), -np.sin(-angle_1)]).transpose((1, 0))
-        rotate_matrix_x = np.repeat(rotate_matrix_x, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))  # N*5*2
-
-        rotate_matrix_y = np.array([np.sin(-angle_1), np.cos(-angle_1)]).transpose((1, 0))
-        rotate_matrix_y = np.repeat(rotate_matrix_y, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))
-
-        p_rotate_x = np.sum(rotate_matrix_x * p, axis=2)[:, :, np.newaxis]  # N*5*1
-        p_rotate_y = np.sum(rotate_matrix_y * p, axis=2)[:, :, np.newaxis]  # N*5*1
-
-        p_rotate = np.concatenate([p_rotate_x, p_rotate_y], axis=2)  # N*5*2
-
-        p3_in_origin = origin_1 - p_rotate[:, 4, :]
-        new_p0 = p_rotate[:, 0, :] + p3_in_origin  # N*2
-        new_p1 = p_rotate[:, 1, :] + p3_in_origin
-        new_p2 = p_rotate[:, 2, :] + p3_in_origin
-        new_p3 = p_rotate[:, 3, :] + p3_in_origin
-
-        new_p0_newaxis = new_p0[:, np.newaxis, :]
-        new_p1_newaxis = new_p1[:, np.newaxis, :]
-        new_p2_newaxis = new_p2[:, np.newaxis, :]
-        new_p3_newaxis = new_p3[:, np.newaxis, :]
-
-        new_p_1 = np.concatenate([new_p0[:, np.newaxis, :], new_p1[:, np.newaxis, :],
-                                  new_p2[:, np.newaxis, :], new_p3[:, np.newaxis, :]], axis=1)  # N*4*2
-    else:
-        new_p_1 = np.zeros((0, 4, 2))
-    return np.concatenate([new_p_0, new_p_1])
-
-
 def restore_rectangle(origin, geometry):
-    return restore_rectangle_rbox(origin, geometry)
+    translation = geometry[:, :4]
+    rotation = geometry[:, 4]
+    # Translation vector
+    coordinates = np.hstack(np.hstack(
+                   [-translation[:, 3],  translation[:, 0],
+                     translation[:, 1],  translation[:, 0],
+                     translation[:, 1], -translation[:, 2],
+                    -translation[:, 3], -translation[:, 2]])).reshape(-1,4,2).transpose(1,0,2)
+
+    # Rotation matrix
+    rotateX = np.array([-np.sin(rotation),-np.cos(rotation)]).T
+    rotateY = np.array([-np.cos(rotation),-np.sin(rotation)]).T
+    X = (coordinates * rotateX).sum(axis=2) + origin[:, 1]
+    Y = (coordinates * rotateY).sum(axis=2) - origin[:, 0]
+    result = np.concatenate((-Y.reshape(4,-1,1),X.reshape(4,-1,1)),axis=2).transpose(1,0,2)
+
+    return result
 
 
 def generate_rbox(im_size, polys, tags):
@@ -543,76 +460,9 @@ def generator(input_size=512, batch_size=32,
                 traceback.print_exc()
                 continue
 
-def generator_test(input_size=512, batch_size=32,
-              background_ratio=3./8,
-              random_scale=np.array([0.5, 1, 2.0, 3.0])):
-    image_list = np.array(get_images(FLAGS.test_data_path))
-    print('{} test images in {}'.format(
-        image_list.shape[0], FLAGS.test_data_path))
-    index = np.arange(0, image_list.shape[0])
-    while True:
-        np.random.shuffle(index)
-        images = []
-        image_fns = []
-        score_maps = []
-        geo_maps = []
-        training_masks = []
-        for i in index:
-            try:
-                im_fn = image_list[i]
-                im = cv2.imread(im_fn)
-                # print im_fn
-                h, w, _ = im.shape
-                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
-                if not os.path.exists(txt_fn):
-                    print('text file {} does not exists'.format(txt_fn))
-                    continue
-
-                text_polys, text_tags = load_annoataion(txt_fn)
-
-                score_map, geo_map, training_mask = generate_rbox((h, w), text_polys, text_tags)
-
-                images.append(im[:, :, ::-1].astype(np.float32))
-                image_fns.append(im_fn)
-                score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
-                geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
-                training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
-
-                if len(images) == batch_size:
-                    yield images, image_fns, score_maps, geo_maps, training_masks
-                    images = []
-                    image_fns = []
-                    score_maps = []
-                    geo_maps = []
-                    training_masks = []
-            except Exception as ex:
-                import traceback
-                traceback.print_exc()
-                continue
-
-
 def get_batch(num_workers, **kwargs):
     try:
         enqueuer = GeneratorEnqueuer(generator(**kwargs), use_multiprocessing=True)
-        print('Generator use 10 batches for buffering, this may take a while, you can tune this yourself.')
-        enqueuer.start(max_queue_size=10, workers=num_workers)
-        generator_output = None
-        while True:
-            while enqueuer.is_running():
-                if not enqueuer.queue.empty():
-                    generator_output = enqueuer.queue.get()
-                    break
-                else:
-                    time.sleep(0.01)
-            yield generator_output
-            generator_output = None
-    finally:
-        if enqueuer is not None:
-            enqueuer.stop()
-
-def get_batch_test(num_workers, **kwargs):
-    try:
-        enqueuer = GeneratorEnqueuer(generator_test(**kwargs), use_multiprocessing=True)
         print('Generator use 10 batches for buffering, this may take a while, you can tune this yourself.')
         enqueuer.start(max_queue_size=10, workers=num_workers)
         generator_output = None
