@@ -99,7 +99,7 @@ def dice_coefficient(y_true_cls, y_pred_cls,
     '''
     eps = 1e-5
     intersection = tf.reduce_sum(y_true_cls * y_pred_cls * training_mask)
-    union = tf.reduce_sum(y_true_cls * training_mask) + tf.reduce_sum(y_pred_cls * training_mask) + eps
+    union = tf.reduce_sum(tf.square(y_true_cls) * training_mask) + tf.reduce_sum(tf.square(y_pred_cls) * training_mask) + eps
     loss = 1. - (2 * intersection / union)
     tf.summary.scalar('classification_dice_loss', loss)
     return loss
@@ -138,6 +138,6 @@ def loss(y_true_cls, y_pred_cls,
     L_theta = 1 - tf.cos(theta_pred - theta_gt)
     tf.summary.scalar('geometry_AABB', tf.reduce_mean(L_AABB * y_true_cls * training_mask))
     tf.summary.scalar('geometry_theta', tf.reduce_mean(L_theta * y_true_cls * training_mask))
-    L_g = L_AABB + 20 * L_theta
+    L_g = L_AABB + 40 * L_theta
 
     return tf.reduce_mean(L_g * y_true_cls * training_mask) + classification_loss

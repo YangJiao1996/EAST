@@ -2,6 +2,9 @@ import time
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
+import warnings
+
+warnings.filterwarnings("ignore", message="Polyfit may be poorly conditioned")
 
 tf.app.flags.DEFINE_integer('input_size', 512, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
@@ -131,7 +134,7 @@ def main(argv=None):
                 total_loss, model_loss = tower_loss(iis, isms, igms, itms, True, reuse_variables)
                 batch_norm_updates_op = tf.group(*tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope))
                 reuse_variables = True
-                total_loss_test, model_loss_test = tower_loss(iis, isms, igms, itms, False, reuse_variables)
+                # total_loss_test, model_loss_test = tower_loss(iis, isms, igms, itms, False, reuse_variables)
                 grads = opt.compute_gradients(total_loss)
                 tower_grads.append(grads)
 
@@ -169,9 +172,7 @@ def main(argv=None):
                                          input_size=FLAGS.input_size,
                                          batch_size=FLAGS.batch_size_per_gpu * len(gpus))
         
-        test_data_generator = icdar.get_batch_test(num_workers=FLAGS.num_readers,
-                                         input_size=FLAGS.input_size,
-                                         batch_size=FLAGS.batch_size_per_gpu * len(gpus))
+        
 
         start = time.time()
         for step in range(FLAGS.max_steps):
@@ -187,22 +188,13 @@ def main(argv=None):
                 avg_time_per_step = (time.time() - start)/10
                 avg_examples_per_second = (10 * FLAGS.batch_size_per_gpu * len(gpus))/(time.time() - start)
                 start = time.time()
+                print(f"np - Shape of score_maps: {np.array(training_data[2]).shape}")
+                print(f"np - Shape of geo_maps: {np.array(training_data[3]).shape}")
+                print(f"np - Shape of training_masks: {np.array(training_data[4]).shape}")
                 print('Step {:06d}, model loss {:.4f}, total loss {:.4f}, {:.2f} seconds/step, {:.2f} examples/second'.format(
                     step, ml, tl, avg_time_per_step, avg_examples_per_second))
 
-            if step % 100 == 0:
-                test_start = time.time()
-                test_data = next(test_data_generator)
-                print(f"np - Shape of score_maps: {np.array(test_data[2]).shape}")
-                print(f"np - Shape of geo_maps: {np.array(test_data[3]).shape}")
-                print(f"np - Shape of training_masks: {np.array(test_data[4]).shape}")
-                ml_test, tl_test = sess.run([model_loss_test, total_loss_test], feed_dict={input_images: test_data[0],
-                                                                                 input_score_maps: test_data[2],
-                                                                                 input_geo_maps: test_data[3],
-                                                                                 input_training_masks: test_data[4]})
-                test_end = time.time()
-                print('Test loss: model loss {:.4f}, total loss {:.4f}, time elapsed: {:.2f} seconds'\
-                    .format(ml_test, tl_test, test_end - test_start))
+
 
             if step % FLAGS.save_checkpoint_steps == 0:
                 saver.save(sess, FLAGS.checkpoint_path + 'model.ckpt', global_step=global_step)
