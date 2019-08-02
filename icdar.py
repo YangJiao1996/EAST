@@ -95,6 +95,20 @@ def check_and_validate_polys(polys, tags, height_width):
         validated_tags.append(tag)
     return np.array(validated_polys), np.array(validated_tags)
 
+def resize_with_labels(image, label, resize_ratio_x, resize_ratio_y):
+    """ Resize the image with its label
+    
+    Arguments:
+        image {[type]} -- [description]
+        label {[type]} -- [description]
+        resize_ratio {[type]} -- [description]
+    """
+    image_resized = cv2.resize(image, dsize=None, fx=resize_ratio_x, fy=resize_ratio_y)
+    label_resized = np.zeros_like(label)
+    label_resized[:, :, 0] = label[:, :, 0] * resize_ratio_x
+    label_resized[:, :, 1] = label[:, :, 1] * resize_ratio_y
+    return image_resized, label_resized
+
 
 def crop_area(im, polys, tags, crop_background=False, max_tries=50):
     '''
@@ -321,8 +335,7 @@ def generate_rbox(im_size, polys, tags):
 
 def dataset_generator(input_size=512, batch_size=32,
               background_ratio=3./8,
-              random_scale=np.array([0.5, 1, 2.0, 3.0]),
-              vis=False):
+              random_scale=np.array([0.5, 1, 2.0, 3.0])):
     image_list = np.array(get_images(FLAGS.training_data_path))
     print('{} training images in {}'.format(
         image_list.shape[0], FLAGS.training_data_path))
@@ -349,8 +362,7 @@ def dataset_generator(input_size=512, batch_size=32,
                 text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (h, w))
                 # random scale this image
                 rd_scale = np.random.choice(random_scale)
-                im = cv2.resize(im, dsize=None, fx=rd_scale, fy=rd_scale)
-                text_polys *= rd_scale
+                im, text_polys = resize_with_labels(im, text_polys, rd_scale, rd_scale)
                 # random crop a area from image
                 if np.random.rand() < background_ratio:
                     # crop background
@@ -376,7 +388,6 @@ def dataset_generator(input_size=512, batch_size=32,
                     im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)
                     if text_polys.shape[0] == 0:
                         continue
-                    h, w, _ = im.shape
 
                     # pad the image to the training input size or the longer side of image
                     new_h, new_w, _ = im.shape
@@ -386,15 +397,12 @@ def dataset_generator(input_size=512, batch_size=32,
                     im = im_padded
                     # resize the image to input size
                     new_h, new_w, _ = im.shape
-                    resize_h = input_size
-                    resize_w = input_size
-                    im = cv2.resize(im, dsize=(resize_w, resize_h))
-                    resize_ratio_3_x = resize_w/float(new_w)
-                    resize_ratio_3_y = resize_h/float(new_h)
+                    im = cv2.resize(im, dsize=(input_size, input_size))
+                    resize_ratio_3_x = input_size/float(new_w)
+                    resize_ratio_3_y = input_size/float(new_h)
                     text_polys[:, :, 0] *= resize_ratio_3_x
                     text_polys[:, :, 1] *= resize_ratio_3_y
-                    new_h, new_w, _ = im.shape
-                    score_map, geo_map, training_mask = generate_rbox((new_h, new_w), text_polys, text_tags)
+                    score_map, geo_map, training_mask = generate_rbox((input_size, input_size), text_polys, text_tags)
 
                 images.append(im[:, :, ::-1].astype(np.float32))
                 image_fns.append(im_fn)
