@@ -37,10 +37,8 @@ def model(images, weight_decay=1e-5, is_training=True):
     '''
     images = mean_image_subtraction(images)
 
-    with slim.arg_scope(pvanet.pvanet_scope(weight_decay=weight_decay, is_training=is_training)):
-        with tf.variable_scope('pvanet'):
-            _, end_points = pvanet.pvanet(images)
-            print(images)
+    with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=weight_decay)):
+        logits, end_points = resnet_v1.resnet_v1_50(images, is_training=is_training, scope='resnet_v1_50')
 
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
         batch_norm_params = {
@@ -54,8 +52,8 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_fn=slim.batch_norm,
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
-            f = [end_points['conv5'], end_points['conv4'],
-                 end_points['conv3'], end_points['conv2']]
+            f = [end_points['pool5'], end_points['pool4'],
+                 end_points['pool3'], end_points['pool2']]
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
