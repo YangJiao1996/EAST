@@ -5,8 +5,9 @@ import cv2
 import time
 import os
 import numpy as np
-from shapely.geometry import Polygon, LinearRing
+from shapely.geometry import LinearRing
 from shapely.algorithms import cga
+from shapely import affinity
 from geo_map_cython_lib import gen_geo_map
 
 import tensorflow as tf
@@ -95,7 +96,7 @@ def check_and_validate_polys(polys, tags, height_width):
         validated_tags.append(tag)
     return np.array(validated_polys), np.array(validated_tags)
 
-def resize_with_labels(image, label, resize_ratio_x, resize_ratio_y):
+def resize_with_label(image, label, resize_ratio_x, resize_ratio_y):
     """ Resize the image with its label
     
     Arguments:
@@ -241,6 +242,48 @@ def shrink_poly(poly, r):
         poly[2][1] -= R * r[2] * np.sin(theta)
     return poly
 
+def rotate_with_label(image, labels):
+    """ Randomly rotate the image with its label without cropping it
+        Modified from https://github.com/jrosebr1/imutils/blob/master/imutils/convenience.py#L41
+    Arguments:
+        image {[type]} -- [description]
+        label {[type]} -- [description]
+    """
+    image_height, image_width, _ = image.shape
+    (image_centerX, image_centerY) = (image_height // 2, image_width // 2)
+    rot_angle = (np.random.random() - 1) * 60
+
+    # Get the rotation matrix first
+    affine_matrix = cv2.getRotationMatrix2D((image_centerX, image_centerY), rot_angle, 1.0)
+    
+    # Affinity Matrix     Rotation Matirx (without translation)
+    #   [a b x_off]                 [cosTh -sinTh 0]
+    #   [d e y_off]                 [sinTh  cosTh 0]
+    #   [0 0   1  ]                 [  0      0   1]
+
+    # Use the new bounding region to get the translation vector
+    cosTh = np.abs(affine_matrix[0, 0])
+    sinTh = np.abs(affine_matrix[0, 1])
+    rotated_height = int((image_height * sinTh) + (image_width * cosTh))
+    rotated_width = int((image_height * cosTh) + (image_width * sinTh))
+
+    affine_matrix[0, 2] += (rotated_height / 2) - image_centerX
+    affine_matrix[1, 2] += (rotated_width / 2) - image_centerY
+
+    # Flatten the matrix for shape.affinity input
+    flatten_affine = [affine_matrix[0, 0], affine_matrix[0, 1],
+                      affine_matrix[1, 0], affine_matrix[1, 1],
+                      affine_matrix[0, 2], affine_matrix[1, 2]]
+    rotated_img = cv2.warpAffine(image, affine_matrix, (rotated_width, rotated_height))
+    rotated_labels = [None] * len(labels)
+    for idx, label in enumerate(labels) :
+        label_linring = LinearRing(label)
+        rotated_polygon = affinity.affine_transform(label_linring, flatten_affine)
+        rotated_label = list([list(coord) for coord in rotated_polygon.coords[:-1]])
+        rotated_labels[idx] = rotated_label
+    return rotated_img, np.array(rotated_labels, dtype=np.float32)
+
+
 def sort_rectangle(poly):
     # sort the four coordinates of the polygon, points in poly should be sorted clockwise
     # First find the lowest point
@@ -329,7 +372,6 @@ def generate_rbox(im_size, polys, tags):
         rectangle_coords, rotate_angle = sort_rectangle(rectangle_coords)
 
         gen_geo_map.gen_geo_map(geo_map, xy_in_poly, rectangle_coords, rotate_angle)
-
     return score_map, geo_map, training_mask
 
 
@@ -360,49 +402,53 @@ def dataset_generator(input_size=512, batch_size=32,
                 text_polys, text_tags = load_annoataion(txt_fn)
 
                 text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (h, w))
-                # random scale this image
-                rd_scale = np.random.choice(random_scale)
-                im, text_polys = resize_with_labels(im, text_polys, rd_scale, rd_scale)
-                # random crop a area from image
-                if np.random.rand() < background_ratio:
-                    # crop background
-                    im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=True)
-                    if text_polys.shape[0] > 0:
-                        # cannot find background
-                        continue
-                    # pad and resize image
-                    new_h, new_w, _ = im.shape
-                    max_h_w_i = np.max([new_h, new_w, input_size])
-                    im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
-                    im_padded[:new_h, :new_w, :] = im.copy()
-                    im = cv2.resize(im_padded, dsize=(input_size, input_size))
-                    # no text here, so no need to generate rbox
-                    # score_map (for classification): all zeros
-                    score_map = np.zeros((input_size, input_size), dtype=np.uint8)
-                    geo_map_channels = 5 if FLAGS.geometry == 'RBOX' else 8
-                    # geo_map (for regression): all zeros
-                    geo_map = np.zeros((input_size, input_size, geo_map_channels), dtype=np.float32)
-                    # training_mask: all ones
-                    training_mask = np.ones((input_size, input_size), dtype=np.uint8)
-                else:
-                    im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)
-                    if text_polys.shape[0] == 0:
-                        continue
+                ## =========================================================================================
+                # # random scale this image
+                # rd_scale = np.random.choice(random_scale)
+                # im, text_polys = resize_with_label(im, text_polys, rd_scale, rd_scale)
 
-                    # pad the image to the training input size or the longer side of image
-                    new_h, new_w, _ = im.shape
-                    max_h_w_i = np.max([new_h, new_w, input_size])
-                    im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
-                    im_padded[:new_h, :new_w, :] = im.copy()
-                    im = im_padded
-                    # resize the image to input size
-                    new_h, new_w, _ = im.shape
-                    im = cv2.resize(im, dsize=(input_size, input_size))
-                    resize_ratio_3_x = input_size/float(new_w)
-                    resize_ratio_3_y = input_size/float(new_h)
-                    text_polys[:, :, 0] *= resize_ratio_3_x
-                    text_polys[:, :, 1] *= resize_ratio_3_y
-                    score_map, geo_map, training_mask = generate_rbox((input_size, input_size), text_polys, text_tags)
+                # # random crop a area from image
+                # if np.random.rand() < background_ratio:
+                #     # crop background
+                #     im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=True)
+                #     if text_polys.shape[0] > 0:
+                #         # cannot find background
+                #         continue
+                #     # pad and resize image
+                #     new_h, new_w, _ = im.shape
+                #     max_h_w_i = np.max([new_h, new_w, input_size])
+                #     im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
+                #     im_padded[:new_h, :new_w, :] = im.copy()
+                #     im = cv2.resize(im_padded, dsize=(input_size, input_size))
+                #     # no text here, so no need to generate rbox
+                #     # score_map (for classification): all zeros
+                #     score_map = np.zeros((input_size, input_size), dtype=np.uint8)
+                #     geo_map_channels = 5 if FLAGS.geometry == 'RBOX' else 8
+                #     # geo_map (for regression): all zeros
+                #     geo_map = np.zeros((input_size, input_size, geo_map_channels), dtype=np.float32)
+                #     # training_mask: all ones
+                #     training_mask = np.ones((input_size, input_size), dtype=np.uint8)
+                # else:
+                ## =========================================================================================
+                im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)
+                if text_polys.shape[0] == 0:
+                    continue
+                # Randomly rotate the image and label
+                im, text_polys = rotate_with_label(im, text_polys)
+                # pad the image to the training input size or the longer side of image
+                new_h, new_w, _ = im.shape
+                max_h_w_i = np.max([new_h, new_w, input_size])
+                im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
+                im_padded[:new_h, :new_w, :] = im.copy()
+                im = im_padded
+                # resize the image to input size
+                new_h, new_w, _ = im.shape
+                im = cv2.resize(im, dsize=(input_size, input_size))
+                resize_ratio_3_x = input_size/float(new_w)
+                resize_ratio_3_y = input_size/float(new_h)
+                text_polys[:, :, 0] *= resize_ratio_3_x
+                text_polys[:, :, 1] *= resize_ratio_3_y
+                score_map, geo_map, training_mask = generate_rbox((input_size, input_size), text_polys, text_tags)
 
                 images.append(im[:, :, ::-1].astype(np.float32))
                 image_fns.append(im_fn)

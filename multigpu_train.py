@@ -34,23 +34,6 @@ def tower_loss(images, score_maps, geo_maps, training_masks, training_flag, reus
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
         f_score, f_geometry = model.model(images, is_training=training_flag)
     print_shape_flag = tf.math.logical_and(tf.math.logical_not(training_flag), FLAGS.debug_flag)
-    
-    # Print out some debug messages
-    score_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(score_maps, [tf.shape(score_maps)], "tf - Shape of score_maps is :", summarize=4),\
-                         lambda: tf.identity(score_maps))
-    f_score = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_score, [tf.shape(f_score)], "tf - Shape of f_score is :", summarize=4),\
-                         lambda: tf.identity(f_score))
-    geo_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(geo_maps, [tf.shape(geo_maps)], "tf - Shape of geo_maps is :", summarize=4),\
-                         lambda: tf.identity(geo_maps))
-    f_geometry = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_geometry, [tf.shape(f_geometry)], "tf - Shape of f_geometry is :", summarize=4),\
-                         lambda: tf.identity(f_geometry))
-    training_masks = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(training_masks, [tf.shape(training_masks)], "tf - Shape of training_masks is :", summarize=4),\
-                         lambda: tf.identity(training_masks))
     model_loss = model.loss(score_maps, f_score,
                             geo_maps, f_geometry,
                             training_masks)

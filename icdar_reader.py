@@ -73,7 +73,7 @@ def data_reader(input_size=512, visuliazation=True):
         text_polygons, text_tags = icdar.load_annoataion(label_filename)
         text_polygons, text_tags = icdar.check_and_validate_polys(text_polygons, text_tags, \
                                         (height_original, width_original))
-        image_resized, text_resized = icdar.resize_with_labels(image_original, text_polygons, \
+        image_resized, text_resized = icdar.resize_with_label(image_original, text_polygons, \
                                         resize_ratio_3_x, resize_ratio_3_y)
         ## Skip the weird cropping stage of data augementation
         score_map, geo_map, training_mask = icdar.generate_rbox((input_size, input_size),
