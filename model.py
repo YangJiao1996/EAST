@@ -5,8 +5,8 @@ from tensorflow.contrib import slim
 
 tf.app.flags.DEFINE_integer('text_scale', 512, '')
 
-from nets import resnet_v1, pvanet
-
+from nets import pvanet
+from tensorflow.contrib.slim.nets import resnet_v1, vgg
 FLAGS = tf.app.flags.FLAGS
 
 DEBUG = 1
@@ -37,10 +37,9 @@ def model(images, weight_decay=1e-5, is_training=True):
     '''
     images = mean_image_subtraction(images)
 
-    with slim.arg_scope(pvanet.pvanet_scope(weight_decay=weight_decay, is_training=is_training)):
-        with tf.variable_scope('pvanet'):
-            _, end_points = pvanet.pvanet(images)
-            print(images)
+    with slim.arg_scope(vgg.vgg_arg_scope(weight_decay=weight_decay, is_training=is_training)):
+        with tf.variable_scope('vgg16'):
+            _, end_points = vgg.vgg_16(images)
 
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
         batch_norm_params = {
@@ -54,8 +53,8 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_fn=slim.batch_norm,
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
-            f = [end_points['conv5'], end_points['conv4'],
-                 end_points['conv3'], end_points['conv2']]
+            f = [end_points['pool5'], end_points['pool4'],
+                 end_points['pool3'], end_points['pool2']]
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
@@ -138,6 +137,6 @@ def loss(y_true_cls, y_pred_cls,
     L_theta = 1 - tf.cos(theta_pred - theta_gt)
     tf.summary.scalar('geometry_AABB', tf.reduce_mean(L_AABB * y_true_cls * training_mask))
     tf.summary.scalar('geometry_theta', tf.reduce_mean(L_theta * y_true_cls * training_mask))
-    L_g = L_AABB + 40 * L_theta
+    L_g = L_AABB + 20 * L_theta
 
     return tf.reduce_mean(L_g * y_true_cls * training_mask) + classification_loss
