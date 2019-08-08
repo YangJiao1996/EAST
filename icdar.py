@@ -251,7 +251,7 @@ def rotate_with_label(image, labels):
     """
     image_height, image_width, _ = image.shape
     (image_centerX, image_centerY) = (image_height // 2, image_width // 2)
-    rot_angle = (np.random.random() - 1) * 60
+    rot_angle = (np.random.random() - 0.5) * 90
 
     # Get the rotation matrix first
     affine_matrix = cv2.getRotationMatrix2D((image_centerX, image_centerY), rot_angle, 1.0)
@@ -320,23 +320,75 @@ def sort_rectangle(poly):
 
 
 def restore_rectangle(origin, geometry):
-    translation = geometry[:, :4]
-    rotation = geometry[:, 4]
-    # Translation vector
-    coordinates = np.hstack(np.hstack(
-                   [-translation[:, 3],  translation[:, 0],
-                     translation[:, 1],  translation[:, 0],
-                     translation[:, 1], -translation[:, 2],
-                    -translation[:, 3], -translation[:, 2]])).reshape(-1,4,2).transpose(1,0,2)
+    d = geometry[:, :4]
+    angle = geometry[:, 4]
+    # for angle > 0
+    origin_0 = origin[angle >= 0]
+    d_0 = d[angle >= 0]
+    angle_0 = angle[angle >= 0]
+    if origin_0.shape[0] > 0:
+        p = np.array([np.zeros(d_0.shape[0]), -d_0[:, 0] - d_0[:, 2],
+                        d_0[:, 1] + d_0[:, 3], -d_0[:, 0] - d_0[:, 2],
+                        d_0[:, 1] + d_0[:, 3], np.zeros(d_0.shape[0]),
+                        np.zeros(d_0.shape[0]), np.zeros(d_0.shape[0]),
+                        d_0[:, 3], -d_0[:, 2]])
+        p = p.transpose((1, 0)).reshape((-1, 5, 2))  # N*5*2
 
-    # Rotation matrix
-    rotateX = np.array([-np.sin(rotation),-np.cos(rotation)]).T
-    rotateY = np.array([-np.cos(rotation),-np.sin(rotation)]).T
-    X = (coordinates * rotateX).sum(axis=2) + origin[:, 1]
-    Y = (coordinates * rotateY).sum(axis=2) - origin[:, 0]
-    result = np.concatenate((-Y.reshape(4,-1,1),X.reshape(4,-1,1)),axis=2).transpose(1,0,2)
+        rotate_matrix_x = np.array([np.cos(angle_0), np.sin(angle_0)]).transpose((1, 0))
+        rotate_matrix_x = np.repeat(rotate_matrix_x, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))  # N*5*2
 
-    return result
+        rotate_matrix_y = np.array([-np.sin(angle_0), np.cos(angle_0)]).transpose((1, 0))
+        rotate_matrix_y = np.repeat(rotate_matrix_y, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))
+
+        p_rotate_x = np.sum(rotate_matrix_x * p, axis=2)[:, :, np.newaxis]  # N*5*1
+        p_rotate_y = np.sum(rotate_matrix_y * p, axis=2)[:, :, np.newaxis]  # N*5*1
+
+        p_rotate = np.concatenate([p_rotate_x, p_rotate_y], axis=2)  # N*5*2
+
+        p3_in_origin = origin_0 - p_rotate[:, 4, :]
+        new_p0 = p_rotate[:, 0, :] + p3_in_origin  # N*2
+        new_p1 = p_rotate[:, 1, :] + p3_in_origin
+        new_p2 = p_rotate[:, 2, :] + p3_in_origin
+        new_p3 = p_rotate[:, 3, :] + p3_in_origin
+
+        new_p_0 = np.concatenate([new_p0[:, np.newaxis, :], new_p1[:, np.newaxis, :],
+                                    new_p2[:, np.newaxis, :], new_p3[:, np.newaxis, :]], axis=1)  # N*4*2
+    else:
+        new_p_0 = np.zeros((0, 4, 2))
+    # for angle < 0
+    origin_1 = origin[angle < 0]
+    d_1 = d[angle < 0]
+    angle_1 = angle[angle < 0]
+    if origin_1.shape[0] > 0:
+        p = np.array([-d_1[:, 1] - d_1[:, 3], -d_1[:, 0] - d_1[:, 2],
+                        np.zeros(d_1.shape[0]), -d_1[:, 0] - d_1[:, 2],
+                        np.zeros(d_1.shape[0]), np.zeros(d_1.shape[0]),
+                        -d_1[:, 1] - d_1[:, 3], np.zeros(d_1.shape[0]),
+                        -d_1[:, 1], -d_1[:, 2]])
+        p = p.transpose((1, 0)).reshape((-1, 5, 2))  # N*5*2
+
+        rotate_matrix_x = np.array([np.cos(-angle_1), -np.sin(-angle_1)]).transpose((1, 0))
+        rotate_matrix_x = np.repeat(rotate_matrix_x, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))  # N*5*2
+
+        rotate_matrix_y = np.array([np.sin(-angle_1), np.cos(-angle_1)]).transpose((1, 0))
+        rotate_matrix_y = np.repeat(rotate_matrix_y, 5, axis=1).reshape(-1, 2, 5).transpose((0, 2, 1))
+
+        p_rotate_x = np.sum(rotate_matrix_x * p, axis=2)[:, :, np.newaxis]  # N*5*1
+        p_rotate_y = np.sum(rotate_matrix_y * p, axis=2)[:, :, np.newaxis]  # N*5*1
+
+        p_rotate = np.concatenate([p_rotate_x, p_rotate_y], axis=2)  # N*5*2
+
+        p3_in_origin = origin_1 - p_rotate[:, 4, :]
+        new_p0 = p_rotate[:, 0, :] + p3_in_origin  # N*2
+        new_p1 = p_rotate[:, 1, :] + p3_in_origin
+        new_p2 = p_rotate[:, 2, :] + p3_in_origin
+        new_p3 = p_rotate[:, 3, :] + p3_in_origin
+
+        new_p_1 = np.concatenate([new_p0[:, np.newaxis, :], new_p1[:, np.newaxis, :],
+                                    new_p2[:, np.newaxis, :], new_p3[:, np.newaxis, :]], axis=1)  # N*4*2
+    else:
+        new_p_1 = np.zeros((0, 4, 2))
+    return np.concatenate([new_p_0, new_p_1])
 
 
 def generate_rbox(im_size, polys, tags):
@@ -402,59 +454,60 @@ def dataset_generator(input_size=512, batch_size=32,
                 text_polys, text_tags = load_annoataion(txt_fn)
 
                 text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (h, w))
-                ## =========================================================================================
-                # # random scale this image
-                # rd_scale = np.random.choice(random_scale)
-                # im, text_polys = resize_with_label(im, text_polys, rd_scale, rd_scale)
+                # =========================================================================================
+                # random scale this image
+                rd_scale = np.random.choice(random_scale)
+                im, text_polys = resize_with_label(im, text_polys, rd_scale, rd_scale)
 
-                # # random crop a area from image
-                # if np.random.rand() < background_ratio:
-                #     # crop background
-                #     im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=True)
-                #     if text_polys.shape[0] > 0:
-                #         # cannot find background
-                #         continue
-                #     # pad and resize image
-                #     new_h, new_w, _ = im.shape
-                #     max_h_w_i = np.max([new_h, new_w, input_size])
-                #     im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
-                #     im_padded[:new_h, :new_w, :] = im.copy()
-                #     im = cv2.resize(im_padded, dsize=(input_size, input_size))
-                #     # no text here, so no need to generate rbox
-                #     # score_map (for classification): all zeros
-                #     score_map = np.zeros((input_size, input_size), dtype=np.uint8)
-                #     geo_map_channels = 5 if FLAGS.geometry == 'RBOX' else 8
-                #     # geo_map (for regression): all zeros
-                #     geo_map = np.zeros((input_size, input_size, geo_map_channels), dtype=np.float32)
-                #     # training_mask: all ones
-                #     training_mask = np.ones((input_size, input_size), dtype=np.uint8)
-                # else:
-                ## =========================================================================================
-                im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)
-                if text_polys.shape[0] == 0:
-                    continue
-                # Randomly rotate the image and label
-                im, text_polys = rotate_with_label(im, text_polys)
-                # pad the image to the training input size or the longer side of image
-                new_h, new_w, _ = im.shape
-                max_h_w_i = np.max([new_h, new_w, input_size])
-                im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
-                im_padded[:new_h, :new_w, :] = im.copy()
-                im = im_padded
-                # resize the image to input size
-                new_h, new_w, _ = im.shape
-                im = cv2.resize(im, dsize=(input_size, input_size))
-                resize_ratio_3_x = input_size/float(new_w)
-                resize_ratio_3_y = input_size/float(new_h)
-                text_polys[:, :, 0] *= resize_ratio_3_x
-                text_polys[:, :, 1] *= resize_ratio_3_y
-                score_map, geo_map, training_mask = generate_rbox((input_size, input_size), text_polys, text_tags)
+                # random crop a area from image
+                if np.random.rand() < background_ratio:
+                    # crop background
+                    im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=True)
+                    if text_polys.shape[0] > 0:
+                        # cannot find background
+                        continue
+                    # pad and resize image
+                    new_h, new_w, _ = im.shape
+                    max_h_w_i = np.max([new_h, new_w, input_size])
+                    im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
+                    im_padded[:new_h, :new_w, :] = im.copy()
+                    im = cv2.resize(im_padded, dsize=(input_size, input_size))
+                    # no text here, so no need to generate rbox
+                    # score_map (for classification): all zeros
+                    score_map = np.zeros((input_size, input_size), dtype=np.uint8)
+                    geo_map_channels = 5 if FLAGS.geometry == 'RBOX' else 8
+                    # geo_map (for regression): all zeros
+                    geo_map = np.zeros((input_size, input_size, geo_map_channels), dtype=np.float32)
+                    # training_mask: all ones
+                    training_mask = np.ones((input_size, input_size), dtype=np.uint8)
+                else:
+                # =========================================================================================
+                    im, text_polys, text_tags = crop_area(im, text_polys, text_tags, crop_background=False)
+                    if text_polys.shape[0] == 0:
+                        continue
+                    # Randomly rotate the image and label
+                    if np.random.random() > 0.4:
+                        im, text_polys = rotate_with_label(im, text_polys)
+                    # pad the image to the training input size or the longer side of image
+                    new_h, new_w, _ = im.shape
+                    max_h_w_i = np.max([new_h, new_w, input_size])
+                    im_padded = np.zeros((max_h_w_i, max_h_w_i, 3), dtype=np.uint8)
+                    im_padded[:new_h, :new_w, :] = im.copy()
+                    im = im_padded
+                    # resize the image to input size
+                    new_h, new_w, _ = im.shape
+                    im = cv2.resize(im, dsize=(input_size, input_size))
+                    resize_ratio_3_x = input_size/float(new_w)
+                    resize_ratio_3_y = input_size/float(new_h)
+                    text_polys[:, :, 0] *= resize_ratio_3_x
+                    text_polys[:, :, 1] *= resize_ratio_3_y
+                    score_map, geo_map, training_mask = generate_rbox((input_size, input_size), text_polys, text_tags)
 
-                images.append(im[:, :, ::-1].astype(np.float32))
-                image_fns.append(im_fn)
-                score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
-                geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
-                training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
+                    images.append(im[:, :, ::-1].astype(np.float32))
+                    image_fns.append(im_fn)
+                    score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
+                    geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
+                    training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
 
                 if len(images) == batch_size:
                     yield images, image_fns, score_maps, geo_maps, training_masks

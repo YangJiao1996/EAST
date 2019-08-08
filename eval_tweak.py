@@ -108,15 +108,9 @@ def main(argv=None):
                 res_path = os.path.join(FLAGS.output_dir, "boxes")
                 res_name = im_fn_base + "_box.png"
                 res_file = os.path.join(res_path, res_name)
-                # crp_path = os.path.join(FLAGS.output_dir, "cropped")
-                # crp_name = im_fn_base
-                # crp_file = os.path.join(crp_path, crp_name)
                 if not os.path.exists(res_path):
                     os.makedirs(res_path)
-                # if not os.path.exists(crp_path):
-                #    os.makedirs(crp_path)
                 eval_utils.show_polygons(im, boxes, res_file)
-                # eval_utils.show_cropped(im, boxes, crp_file)
 
 
 

@@ -162,3 +162,35 @@ def crop_rect(img, rect):
     img_crop = cv2.warpPerspective(img, M, (rect_width, rect_height))
 
     return img_crop
+
+def intersection_over_union(text_box_gt, text_box, im_width, im_height, threshold=0.75):
+    """ Find out whether the IoU of two bounding boxes is larger than the threshold.
+    
+    Arguments:
+        text_box_gt {4x2 np.array} -- Ground truth bounding box
+        text_box {4x2 np.array} -- Detected box
+    
+    Keyword Arguments:
+        threshold {float} -- The IoU threshold for "matched" region. (default: {0.75})
+    """
+
+
+    # A "canvas" for calculating the union
+    union_canvas = np.zeros((im_height, im_width))
+    cv2.fillPoly(union_canvas, text_box, 1)
+    cv2.fillPoly(union_canvas, text_box_gt, 1)
+    union_area = np.sum(union_canvas, dtype=np.int32)
+    # Two canvases for calculating the intersection
+    test_intersect_canvas = np.zeros((im_height, im_width))
+    gt_intersect_canvas = np.zeros((im_height, im_width))
+    cv2.fillPoly(test_intersect_canvas, text_box, 1)
+    cv2.fillPoly(gt_intersect_canvas, text_box_gt, 1)
+    intersect_canvas = np.logical_and(test_intersect_canvas, gt_intersect_canvas, dtype=np.bool)
+    intersect_area = np.sum(intersect_canvas, dtype=np.int32)
+
+    iou = intersect_area / union_area
+
+    if iou >= threshold:
+        return True
+    else:
+        return False
