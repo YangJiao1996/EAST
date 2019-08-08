@@ -37,7 +37,7 @@ def get_images():
     return files
 
 
-def resize_image(im, max_side_len=2400):
+def resize_image(im, max_side_len=256):
     '''
     resize image to a size multiple of 32 which is required by the network
     :param im: the resized image
@@ -181,23 +181,29 @@ def main(argv=None):
                 txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
                 text_polys, text_tags = load_annoataion(txt_fn)
                 text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
+
                 score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
                 im_resized, (ratio_h, ratio_w) = resize_image(im)
 
                 score_map_gt, (_, _) = resize_image(score_map_gt)
-                geo_map_gt, (_, _) = resize_image(geo_map_gt)
-                training_mask_gt, (_, _) = resize_image(training_mask_gt)
+                geo_map_gt, (_, _)  = resize_image(geo_map_gt)
+                training_mask_gt, (_, _)  = resize_image(training_mask_gt)
 
                 score_map_gt = score_map_gt[::4, ::4, np.newaxis].astype(np.float32)
                 geo_map_gt = geo_map_gt[::4, ::4, :].astype(np.float32)
                 training_mask_gt = training_mask_gt[::4, ::4, np.newaxis].astype(np.float32)
+
                 start_time = time.time()
                 timer['pre_proc'] = start_time - pre_proc_start
                 
                 start = time.time()
-                score, geometry, total_loss, model_loss = sess.run([f_score, f_geometry, total_loss_gt, model_loss_gt], \
-                    feed_dict={input_images: [im_resized], ground_truth_score_maps: [score_map_gt], ground_truth_geo_maps: [geo_map_gt], \
-                        ground_truth_training_masks: [training_mask_gt]})
+                score, geometry, total_loss, model_loss = \
+                    sess.run([f_score, f_geometry, total_loss_gt, model_loss_gt], \
+                    feed_dict={input_images: [im_resized], \
+                               ground_truth_score_maps: [score_map_gt], \
+                               ground_truth_geo_maps: [geo_map_gt], \
+                               ground_truth_training_masks: [training_mask_gt] \
+                               })
                 timer['net'] = time.time() - start
 
                 boxes, timer = detect(score_map=score, geo_map=geometry, timer=timer)
@@ -213,6 +219,7 @@ def main(argv=None):
 
                 print('{}:\nPre-processing: {:.0f}ms, Feed-forward: {:.0f}ms, Rectangle-restore: {:.0f}ms, NMS: {:.0f}ms, Total: {:.2f}s'.format\
                     (im_fn, timer['pre_proc']*1000, timer['net']*1000, timer['restore']*1000, timer['nms']*1000, duration))
+
 
                 print('Model loss: {:.4f}, total loss: {:.4f}'.format(model_loss, total_loss))
 

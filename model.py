@@ -2,10 +2,10 @@ import tensorflow as tf
 import numpy as np
 
 from tensorflow.contrib import slim
+from nets import resnet_v1, pvanet, mobilenet_v1
 
 tf.app.flags.DEFINE_integer('text_scale', 512, '')
 
-from nets import resnet_v1, pvanet
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -37,13 +37,15 @@ def model(images, weight_decay=1e-5, is_training=True):
     '''
     images = mean_image_subtraction(images)
 
-    with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=weight_decay)):
-        logits, end_points = resnet_v1.resnet_v1_50(images, is_training=is_training, scope='resnet_v1_50')
+    with slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=is_training)):
+        with tf.variable_scope('MobilenetV1'):
+            _, end_points = mobilenet_v1.mobilenet_v1_base(images)
+            print(images)
 
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
         batch_norm_params = {
-        'decay': 0.997,
-        'epsilon': 1e-5,
+        'decay': 0.9997,
+        'epsilon': 0.001,
         'scale': True,
         'is_training': is_training
         }
@@ -52,8 +54,10 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_fn=slim.batch_norm,
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
-            f = [end_points['pool5'], end_points['pool4'],
-                 end_points['pool3'], end_points['pool2']]
+          
+            f = [end_points['Conv2d_12_pointwise'], end_points['Conv2d_6_pointwise'],
+                 end_points['Conv2d_4_pointwise'], end_points['Conv2d_2_pointwise']]
+            
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
@@ -76,12 +80,12 @@ def model(images, weight_decay=1e-5, is_training=True):
             # this is do with the angle map
             F_score = slim.conv2d(g[3], 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None)
             F_score = tf.identity(F_score, name='F_score')
-            print(F_score)
+            # print(F_score)
             # 4 channel of axis aligned bbox and 1 channel rotation angle
             geo_map = slim.conv2d(g[3], 4, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) * FLAGS.text_scale
             angle_map = (slim.conv2d(g[3], 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) - 0.5) * np.pi/2 # angle is between [-45, 45]
             F_geometry = tf.concat([geo_map, angle_map], axis=-1, name="F_geometry")
-            print(F_geometry)
+            # print(F_geometry)
 
     return F_score, F_geometry
 
