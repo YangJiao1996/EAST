@@ -265,20 +265,20 @@ def sort_rectangle(poly):
 def restore_rectangle(origin, geometry):
     translation = geometry[:, :4]
     rotation = geometry[:, 4]
-    # Translation vector
+    if translation.shape[0] == 0:
+        return np.zeros((0, 4, 2), dtype=np.float32)
     coordinates = np.hstack(np.hstack(
-                   [-translation[:, 3],  translation[:, 0],
-                     translation[:, 1],  translation[:, 0],
-                     translation[:, 1], -translation[:, 2],
-                    -translation[:, 3], -translation[:, 2]])).reshape(-1,4,2).transpose(1,0,2)
+                  [-translation[:, 3:],   translation[:, 0:1],
+                    translation[:, 1:2],  translation[:, 0:1],
+                    translation[:, 1:2], -translation[:, 2:3],
+                   -translation[:, 3:],  -translation[:, 2:3]])).reshape(-1,4,2).transpose(1,0,2)
 
-    # Rotation matrix
     rotateX = np.array([-np.sin(rotation),-np.cos(rotation)]).T
     rotateY = np.array([-np.cos(rotation),-np.sin(rotation)]).T
+
     X = (coordinates * rotateX).sum(axis=2) + origin[:, 1]
     Y = (coordinates * rotateY).sum(axis=2) - origin[:, 0]
     result = np.concatenate((-Y.reshape(4,-1,1),X.reshape(4,-1,1)),axis=2).transpose(1,0,2)
-
     return result
 
 

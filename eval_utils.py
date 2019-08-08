@@ -69,7 +69,7 @@ def resize_image(im, max_side_len=2400):
     return im, (ratio_h, ratio_w)
 
 
-def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.075, nms_thres=0.05):
+def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.075, nms_thres=0.1):
     '''
     restore text boxes from score map and geo map
     :param score_map:
