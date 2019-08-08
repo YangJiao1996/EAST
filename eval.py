@@ -72,7 +72,7 @@ def resize_image(im, max_side_len=256):
     return im, (ratio_h, ratio_w)
 
 
-def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_thres=0.2):
+def detect(score_map, geo_map, timer, score_map_thresh=0.75, box_thresh=0.1, nms_thres=0.1):
     '''
     restore text boxes from score map and geo map
     :param score_map:
@@ -107,7 +107,7 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_
     if boxes.shape[0] == 0:
         return None, timer
 
-    # here we filter some low score boxes by the average score map, this is different from the orginal paper
+    # here we filter some low score boxes by the average score map, which is different from the orginal paper
     for i, box in enumerate(boxes):
         mask = np.zeros_like(score_map, dtype=np.uint8)
         cv2.fillPoly(mask, box[:8].reshape((-1, 4, 2)).astype(np.int32) // 4, 1)
@@ -184,9 +184,11 @@ def main(argv=None):
 
                 score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
                 im_resized, (ratio_h, ratio_w) = resize_image(im)
+
                 score_map_gt, (_, _) = resize_image(score_map_gt)
                 geo_map_gt, (_, _)  = resize_image(geo_map_gt)
                 training_mask_gt, (_, _)  = resize_image(training_mask_gt)
+
                 score_map_gt = score_map_gt[::4, ::4, np.newaxis].astype(np.float32)
                 geo_map_gt = geo_map_gt[::4, ::4, :].astype(np.float32)
                 training_mask_gt = training_mask_gt[::4, ::4, np.newaxis].astype(np.float32)
@@ -210,13 +212,16 @@ def main(argv=None):
                     boxes = boxes[:, :8].reshape((-1, 4, 2))
                     boxes[:, :, 0] /= ratio_w
                     boxes[:, :, 1] /= ratio_h
+                    print(f'ratio_w: {ratio_w}')
+                    print(f'ratio_h: {ratio_h}')
 
                 duration = time.time() - start_time
 
                 print('{}:\nPre-processing: {:.0f}ms, Feed-forward: {:.0f}ms, Rectangle-restore: {:.0f}ms, NMS: {:.0f}ms, Total: {:.2f}s'.format\
                     (im_fn, timer['pre_proc']*1000, timer['net']*1000, timer['restore']*1000, timer['nms']*1000, duration))
 
-                print('Model loss: {:.2f}, total loss: {:.2f}'.format(model_loss, total_loss))
+
+                print('Model loss: {:.4f}, total loss: {:.4f}'.format(model_loss, total_loss))
 
                 # save to file
                 if boxes is not None:

@@ -54,8 +54,10 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_fn=slim.batch_norm,
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
+          
             f = [end_points['Conv2d_12_pointwise'], end_points['Conv2d_6_pointwise'],
                  end_points['Conv2d_4_pointwise'], end_points['Conv2d_2_pointwise']]
+            
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
@@ -99,7 +101,7 @@ def dice_coefficient(y_true_cls, y_pred_cls,
     '''
     eps = 1e-5
     intersection = tf.reduce_sum(y_true_cls * y_pred_cls * training_mask)
-    union = tf.reduce_sum(y_true_cls * training_mask) + tf.reduce_sum(y_pred_cls * training_mask) + eps
+    union = tf.reduce_sum(tf.square(y_true_cls) * training_mask) + tf.reduce_sum(tf.square(y_pred_cls) * training_mask) + eps
     loss = 1. - (2 * intersection / union)
     tf.summary.scalar('classification_dice_loss', loss)
     return loss
