@@ -174,6 +174,8 @@ def main(argv=None):
         
         
 
+        total_losses = []
+        prev_losses_avg = 10e9
         start = time.time()
         for step in range(FLAGS.max_steps):
             training_data = next(training_data_generator)
@@ -181,29 +183,34 @@ def main(argv=None):
                                                                                 input_score_maps: training_data[2],
                                                                                 input_geo_maps: training_data[3],
                                                                                 input_training_masks: training_data[4]})
+            total_losses.append(tl)
             if np.isnan(tl):
                 print('Loss diverged, stop training')
                 break
-            if step % 10 == 0:
-                avg_time_per_step = (time.time() - start)/10
-                avg_examples_per_second = (10 * FLAGS.batch_size_per_gpu * len(gpus))/(time.time() - start)
-                start = time.time()
-                print(f"np - Shape of score_maps: {np.array(training_data[2]).shape}")
-                print(f"np - Shape of geo_maps: {np.array(training_data[3]).shape}")
-                print(f"np - Shape of training_masks: {np.array(training_data[4]).shape}")
-                print('Step {:06d}, model loss {:.4f}, total loss {:.4f}, {:.2f} seconds/step, {:.2f} examples/second'.format(
-                    step, ml, tl, avg_time_per_step, avg_examples_per_second))
-
-
-
             if step % FLAGS.save_checkpoint_steps == 0:
-                saver.save(sess, FLAGS.checkpoint_path + 'model.ckpt', global_step=global_step)
+                curr_losses_avg = np.average(total_losses)
+                print(f"Average total loss of this Epoch: {curr_losses_avg:.4f}.", flush=True)
+                if curr_losses_avg > prev_losses_avg:
+                    print(f"Warning: total loss does not descend. No checkpoints are saved.")
+                else:
+                    print(f"Saving checkpoint to {FLAGS.checkpoint_path}")
+                    saver.save(sess, FLAGS.checkpoint_path + f'model_{step}.ckpt', global_step=global_step)
+                    prev_losses_avg = curr_losses_avg
+                total_losses = []
+
+            avg_time_per_step = (time.time() - start)
+            avg_examples_per_second = (FLAGS.batch_size_per_gpu * len(gpus))/(time.time() - start)
+            start = time.time()
+            print('Step {:06d}: Model Loss {:.4f}, Total Loss {:.4f}. {:.2f} secs/step, {:.2f} examples/s'.format(
+                step, ml, tl, avg_time_per_step, avg_examples_per_second), flush=True, end='\r')
+
+
 
             if step % FLAGS.save_summary_steps == 0:
                 _, tl, summary_str = sess.run([train_op, total_loss, summary_op], feed_dict={input_images: training_data[0],
-                                                                                             input_score_maps: training_data[2],
-                                                                                             input_geo_maps: training_data[3],
-                                                                                             input_training_masks: training_data[4]})
+                                                                                            input_score_maps: training_data[2],
+                                                                                            input_geo_maps: training_data[3],
+                                                                                            input_training_masks: training_data[4]})
                 summary_writer.add_summary(summary_str, global_step=step)
 
 if __name__ == '__main__':
