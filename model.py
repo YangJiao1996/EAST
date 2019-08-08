@@ -5,8 +5,8 @@ from tensorflow.contrib import slim
 
 tf.app.flags.DEFINE_integer('text_scale', 512, '')
 
-from nets import pvanet
-from tensorflow.contrib.slim.nets import resnet_v1, vgg
+from nets import pvanet, resnet_v1, vgg
+
 FLAGS = tf.app.flags.FLAGS
 
 DEBUG = 1
@@ -37,10 +37,9 @@ def model(images, weight_decay=1e-5, is_training=True):
     '''
     images = mean_image_subtraction(images)
 
-    with slim.arg_scope(vgg.vgg_arg_scope(weight_decay=weight_decay, is_training=is_training)):
-        with tf.variable_scope('vgg16'):
-            _, end_points = vgg.vgg_16(images)
-
+    with slim.arg_scope(vgg.vgg_arg_scope(weight_decay=weight_decay)):
+        _, end_points = vgg.vgg_16(images, is_training=is_training, num_classes=1, spatial_squeeze=False)
+          
     with tf.variable_scope('feature_fusion', values=[end_points.values]):
         batch_norm_params = {
         'decay': 0.997,
@@ -53,8 +52,10 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_fn=slim.batch_norm,
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
-            f = [end_points['pool5'], end_points['pool4'],
-                 end_points['pool3'], end_points['pool2']]
+            for k in sorted(end_points.keys()):
+                print(k, end_points[k].shape)  
+            f = [end_points['model_0/vgg_16/pool5'], end_points['model_0/vgg_16/pool4'],
+                 end_points['model_0/vgg_16/pool3'], end_points['model_0/vgg_16/pool2']]
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
