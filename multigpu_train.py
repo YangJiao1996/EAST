@@ -144,21 +144,18 @@ def main(argv=None):
 
     init = tf.global_variables_initializer()
 
-    if FLAGS.pretrained_model is not None:
-        variable_restore_op = slim.assign_from_checkpoint_fn(FLAGS.pretrained_model, slim.get_trainable_variables(),
+    if FLAGS.pretrained_model_path is not None:
+        pretrained_model = tf.train.latest_checkpoint(FLAGS.pretrained_model_path)
+        variable_restore_op = slim.assign_from_checkpoint_fn(pretrained_model, slim.get_trainable_variables(),
                                                              ignore_missing_vars=True)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         if FLAGS.restore:
             print('continue training from previous checkpoint')
             ckpt = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
             saver.restore(sess, ckpt)
-        elif FLAGS.pretrained_model_path is not None:
-            saver = tf.train.import_meta_graph(os.path.join(FLAGS.pretrained_model_path, 'mobilenet_v1_1.0_224.ckpt.meta'))
-            ckpt = tf.train.latest_checkpoint(FLAGS.pretrained_model_path)
-            saver.restore(sess, ckpt)
         else:
             sess.run(init)
-            if FLAGS.pretrained_model is not None:
+            if FLAGS.pretrained_model_path is not None:
                 variable_restore_op(sess)
 
         training_data_generator = icdar.get_batch(num_workers=FLAGS.num_readers,

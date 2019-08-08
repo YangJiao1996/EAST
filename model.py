@@ -55,8 +55,8 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
           
-            f = [end_points['Conv2d_12_pointwise'], end_points['Conv2d_6_pointwise'],
-                 end_points['Conv2d_4_pointwise'], end_points['Conv2d_2_pointwise']]
+            f = [end_points['Conv2d_13_pointwise'], end_points['Conv2d_11_pointwise'],
+                 end_points['Conv2d_5_pointwise'], end_points['Conv2d_3_pointwise']]
             
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
