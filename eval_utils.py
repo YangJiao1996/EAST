@@ -163,7 +163,20 @@ def crop_rect(img, rect):
 
     return img_crop
 
-def intersection_over_union(text_box_gt, text_box, im_width, im_height, threshold=0.75):
+def average_precision_image(text_boxes, text_boxes_gt, text_boxes_gt_tag):
+    """ Calculate the average precision of a single image, based on IoU
+    
+    Arguments:
+        text_boxes {nx9 np.array, dtype=np.float32} -- Detected bounding boxes
+        text_boxes_gt {nx4x2 np.array, dtype=np.float32} -- Ground truth boxes
+        text_boxes_gt_tag {nx1 np.array, dtype=np.bool} -- Tags of bounding boxes for hard areas / Non ROIs
+    
+    Returns:
+        average_precision {np.float32} -- The average precision
+    """
+    return average_precision
+
+def is_matched(text_box_gt, text_box, im_width, im_height, threshold=0.75):
     """ Find out whether the IoU of two bounding boxes is larger than the threshold.
     
     Arguments:
