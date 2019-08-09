@@ -53,9 +53,13 @@ def model(images, weight_decay=1e-5, is_training=True):
                             normalizer_params=batch_norm_params,
                             weights_regularizer=slim.l2_regularizer(weight_decay)):
             for k in sorted(end_points.keys()):
-                print(k, end_points[k].shape)  
-            f = [end_points['model_0/vgg_16/pool5'], end_points['model_0/vgg_16/pool4'],
-                 end_points['model_0/vgg_16/pool3'], end_points['model_0/vgg_16/pool2']]
+                print(k, end_points[k].shape)
+            if is_training == True:  
+                f = [end_points['model_0/vgg_16/pool5'], end_points['model_0/vgg_16/pool4'],
+                    end_points['model_0/vgg_16/pool3'], end_points['model_0/vgg_16/pool2']]
+            else:
+                f = [end_points['vgg_16/pool5'], end_points['vgg_16/pool4'],
+                    end_points['vgg_16/pool3'], end_points['vgg_16/pool2']]
             for i in range(4):
                 print('Shape of f_{} {}'.format(i, f[i].shape))
             g = [None, None, None, None]
