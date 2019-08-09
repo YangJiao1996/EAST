@@ -167,7 +167,6 @@ def main(argv=None):
         prev_losses_avg = 10e9
         start = time.time()
         for step in range(FLAGS.max_steps):
-            print("Getting data...")
             training_data = next(training_data_generator)
             ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: training_data[0],
                                                                                 input_score_maps: training_data[2],
@@ -179,7 +178,8 @@ def main(argv=None):
                 break
             if step % FLAGS.save_checkpoint_steps == 0:
                 curr_losses_avg = np.average(total_losses)
-                print(f"Average total loss of this Epoch: {curr_losses_avg:.4f}.", flush=True)
+                improvement_loss = (1 - curr_losses_avg / prev_losses_avg) * 100
+                print(f"Average total loss of Epoch {step:06d}: {curr_losses_avg:.4f}. {improvement_loss:.2f}% better than last epoch", flush=True)
                 if curr_losses_avg > prev_losses_avg:
                     print(f"Warning: total loss does not descend. No checkpoints are saved.")
                 else:
