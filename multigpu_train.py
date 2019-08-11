@@ -6,7 +6,7 @@ import warnings
 
 warnings.filterwarnings("ignore", message="Polyfit may be poorly conditioned")
 
-tf.app.flags.DEFINE_integer('input_size', 512, '')
+tf.app.flags.DEFINE_integer('input_size', 224, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
 tf.app.flags.DEFINE_integer('num_readers', 8, '')
 tf.app.flags.DEFINE_string('geometry', 'RBOX', '')
@@ -18,6 +18,7 @@ tf.app.flags.DEFINE_string('checkpoint_path', '/Models/EAST/checkpoints/east_res
 tf.app.flags.DEFINE_boolean('restore', False, 'whether to restore from checkpoint')
 tf.app.flags.DEFINE_integer('save_checkpoint_steps', 1000, '')
 tf.app.flags.DEFINE_integer('save_summary_steps', 100, '')
+tf.app.flags.DEFINE_string('pretrained_model', None, '')
 tf.app.flags.DEFINE_string('pretrained_model_path', None, '')
 tf.app.flags.DEFINE_boolean('debug_flag', False, 'whether to show debug messages')
 
@@ -34,23 +35,6 @@ def tower_loss(images, score_maps, geo_maps, training_masks, training_flag, reus
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
         f_score, f_geometry = model.model(images, is_training=training_flag)
     print_shape_flag = tf.math.logical_and(tf.math.logical_not(training_flag), FLAGS.debug_flag)
-    
-    # Print out some debug messages
-    score_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(score_maps, [tf.shape(score_maps)], "tf - Shape of score_maps is :", summarize=4),\
-                         lambda: tf.identity(score_maps))
-    f_score = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_score, [tf.shape(f_score)], "tf - Shape of f_score is :", summarize=4),\
-                         lambda: tf.identity(f_score))
-    geo_maps = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(geo_maps, [tf.shape(geo_maps)], "tf - Shape of geo_maps is :", summarize=4),\
-                         lambda: tf.identity(geo_maps))
-    f_geometry = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(f_geometry, [tf.shape(f_geometry)], "tf - Shape of f_geometry is :", summarize=4),\
-                         lambda: tf.identity(f_geometry))
-    training_masks = tf.cond(print_shape_flag, \
-                         lambda: tf.Print(training_masks, [tf.shape(training_masks)], "tf - Shape of training_masks is :", summarize=4),\
-                         lambda: tf.identity(training_masks))
     model_loss = model.loss(score_maps, f_score,
                             geo_maps, f_geometry,
                             training_masks)
@@ -74,16 +58,19 @@ def average_gradients(tower_grads):
     average_grads = []
     for grad_and_vars in zip(*tower_grads):
         grads = []
+        # print(grad_and_vars)
         for g, _ in grad_and_vars:
-            expanded_g = tf.expand_dims(g, 0)
-            grads.append(expanded_g)
+            if g is not None:
+                expanded_g = tf.expand_dims(g, 0)
+                grads.append(expanded_g)
+        # Only a work around solution
+        if grads:
+            grad = tf.concat(grads, 0)
+            grad = tf.reduce_mean(grad, 0)
 
-        grad = tf.concat(grads, 0)
-        grad = tf.reduce_mean(grad, 0)
-
-        v = grad_and_vars[0][1]
-        grad_and_var = (grad, v)
-        average_grads.append(grad_and_var)
+            v = grad_and_vars[0][1]
+            grad_and_var = (grad, v)
+            average_grads.append(grad_and_var)
 
     return average_grads
 
@@ -132,6 +119,8 @@ def main(argv=None):
                 igms = input_geo_maps_split[i]
                 itms = input_training_masks_split[i]
                 total_loss, model_loss = tower_loss(iis, isms, igms, itms, True, reuse_variables)
+                print(f"Model loss: {model_loss}")
+                print(f"Total loss: {total_loss}")
                 batch_norm_updates_op = tf.group(*tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope))
                 reuse_variables = True
                 # total_loss_test, model_loss_test = tower_loss(iis, isms, igms, itms, False, reuse_variables)
@@ -156,7 +145,8 @@ def main(argv=None):
     init = tf.global_variables_initializer()
 
     if FLAGS.pretrained_model_path is not None:
-        variable_restore_op = slim.assign_from_checkpoint_fn(FLAGS.pretrained_model_path, slim.get_trainable_variables(),
+        pretrained_model = tf.train.latest_checkpoint(FLAGS.pretrained_model_path)
+        variable_restore_op = slim.assign_from_checkpoint_fn(pretrained_model, slim.get_trainable_variables(),
                                                              ignore_missing_vars=True)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         if FLAGS.restore:
@@ -173,7 +163,6 @@ def main(argv=None):
                                          batch_size=FLAGS.batch_size_per_gpu * len(gpus))
         
         
-
         total_losses = []
         prev_losses_avg = 10e9
         start = time.time()
@@ -189,7 +178,8 @@ def main(argv=None):
                 break
             if step % FLAGS.save_checkpoint_steps == 0:
                 curr_losses_avg = np.average(total_losses)
-                print(f"Average total loss of this Epoch: {curr_losses_avg:.4f}.", flush=True)
+                improvement_loss = (1 - curr_losses_avg / prev_losses_avg) * 100
+                print(f"Average total loss of the current epoch {step:06d}: {curr_losses_avg:.4f}. {improvement_loss:.2f}% better than the last epoch.  ", flush=True)
                 if curr_losses_avg > prev_losses_avg:
                     print(f"Warning: total loss does not descend. No checkpoints are saved.")
                 else:
@@ -208,9 +198,9 @@ def main(argv=None):
 
             if step % FLAGS.save_summary_steps == 0:
                 _, tl, summary_str = sess.run([train_op, total_loss, summary_op], feed_dict={input_images: training_data[0],
-                                                                                            input_score_maps: training_data[2],
-                                                                                            input_geo_maps: training_data[3],
-                                                                                            input_training_masks: training_data[4]})
+                                                                                             input_score_maps: training_data[2],
+                                                                                             input_geo_maps: training_data[3],
+                                                                                             input_training_masks: training_data[4]})
                 summary_writer.add_summary(summary_str, global_step=step)
 
 if __name__ == '__main__':
