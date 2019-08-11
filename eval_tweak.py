@@ -18,6 +18,7 @@ tf.app.flags.DEFINE_string('output_dir', '/tmp/ch4_test_images/images/', '')
 tf.app.flags.DEFINE_bool('no_write_images', False, 'do not write images')
 tf.app.flags.DEFINE_string('test_path', '', '')
 tf.app.flags.DEFINE_integer('num_threads', 4, 'Number of CPU threads to use')
+tf.app.flags.DEFINE_float('iou_threshold', 0.75, "Threshold of IoU in average precision calculation")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -36,8 +37,20 @@ def main(argv=None):
 
     variable_averages = tf.train.ExponentialMovingAverage(0.997, global_step)
     saver = tf.train.Saver(variable_averages.variables_to_restore())
+
+    geo_path = os.path.join(FLAGS.output_dir, "geometries")
+    score_path = os.path.join(FLAGS.output_dir, "scores")
+    res_path = os.path.join(FLAGS.output_dir, "boxes")
+
     if not os.path.exists(FLAGS.output_dir):
         os.makedirs(FLAGS.output_dir)
+    if not os.path.exists(score_path):
+        os.makedirs(score_path)
+    if not os.path.exists(geo_path):
+        os.makedirs(geo_path)
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, inter_op_parallelism_threads=FLAGS.num_threads)) as sess:
         ckpt_state = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
         model_path = os.path.join(FLAGS.checkpoint_path, os.path.basename(ckpt_state.model_checkpoint_path))
@@ -52,13 +65,14 @@ def main(argv=None):
             imread_time = (imread_end - imread_start) * 1000
             im_h, im_w, _ = im.shape
             
-            pair_flag = False
             txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[-1], 'txt')
             if os.path.exists(txt_fn):
-                pair_flag = True
                 text_polys, text_tags = load_annoataion(txt_fn)
                 text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (im_h, im_w))
                 score_map_gt, geo_map_gt, training_mask_gt = generate_rbox((im_h, im_w), text_polys, text_tags)
+            else:
+                print(f"File {txt_fn} not found: unable to evalutate")
+                continue
 
             im_resized, (ratio_h, ratio_w) = eval_utils.resize_image(im, max_side_len=384)
             
@@ -82,45 +96,32 @@ def main(argv=None):
             im_fn_base, _ = os.path.splitext(os.path.basename(im_fn))
             
             score_name = im_fn_base + "_score.png"
-            score_path = os.path.join(FLAGS.output_dir, "scores")
-            if not os.path.exists(score_path):
-                os.makedirs(score_path)
+
             score_file = os.path.join(score_path, score_name)
-            if pair_flag:
-                eval_utils.show_pairs(score_map_gt, score_filtered, score_file)
-            else:
-                eval_utils.show_single(score_filtered, score_file)
+            eval_utils.show_pairs(score_map_gt, score_filtered, score_file)
+
             for idx in range(5):
                 geo_name = im_fn_base + "_geo" + str(idx) + ".png"
-                geo_path = os.path.join(FLAGS.output_dir, "geometries")
-                if not os.path.exists(geo_path):
-                    os.makedirs(geo_path)
                 geo_file = os.path.join(geo_path, geo_name)
-                if pair_flag:
-                    eval_utils.show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
-                else:
-                    eval_utils.show_single(geometry_filtered[:, :, idx], geo_file)
+                eval_utils.show_pairs(geo_map_gt[:, :, idx], geometry_filtered[:, :, idx], geo_file)
+
+            average_precisions = []
 
             if boxes is not None:
+                average_precision = eval_utils.average_precision_image(boxes, text_polys, text_tags, im_w, im_h, \
+                                                                ratio_w, ratio_h, threshold=FLAGS.iou_threshold)
+                print(f"Average precision of the image: {average_precision}.")
+                average_precisions.append(average_precision)
                 boxes = boxes[:, :8].reshape((-1, 4, 2))
                 boxes[:, :, 0] /= ratio_w
                 boxes[:, :, 1] /= ratio_h
-                res_path = os.path.join(FLAGS.output_dir, "boxes")
+
                 res_name = im_fn_base + "_box.png"
                 res_file = os.path.join(res_path, res_name)
-                # crp_path = os.path.join(FLAGS.output_dir, "cropped")
-                # crp_name = im_fn_base
-                # crp_file = os.path.join(crp_path, crp_name)
-                if not os.path.exists(res_path):
-                    os.makedirs(res_path)
-                # if not os.path.exists(crp_path):
-                #    os.makedirs(crp_path)
-                eval_utils.show_polygons(im, boxes, res_file)
-                # eval_utils.show_cropped(im, boxes, crp_file)
+                eval_utils.show_polygons(im, boxes, text_polys, text_tags, average_precision, res_file)
 
-
-
-        
+    mean_average_precision = np.mean(average_precisions)        
+    print(f"Mean Average Precision: {mean_average_precision:.4f}")
 
 
 if __name__ == '__main__':

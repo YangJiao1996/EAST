@@ -69,7 +69,7 @@ def resize_image(im, max_side_len=2400):
     return im, (ratio_h, ratio_w)
 
 
-def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.075, nms_thres=0.05):
+def detect(score_map, geo_map, score_map_thresh=0.75, box_thresh=0.075, nms_thres=0.1):
     '''
     restore text boxes from score map and geo map
     :param score_map:
@@ -117,7 +117,7 @@ def sort_poly(p):
     else:
         return p[[0, 3, 2, 1]]
 
-def show_polygons(img, boxes, save_name):
+def show_polygons(img, boxes, boxes_gt, boxes_gt_tag, average_precision, save_name):
     fig = plt.figure(figsize=(15, 15))
     ax = fig.add_subplot(111)
     ax.set_axis_off()
@@ -126,6 +126,13 @@ def show_polygons(img, boxes, save_name):
     for box in boxes:
         poly = patches.Polygon(box, linewidth=3, edgecolor='y', facecolor='none')
         ax.add_patch(poly)
+    for box_gt, box_gt_tag in zip(boxes_gt, boxes_gt_tag):
+        if box_gt_tag:
+            poly = patches.Polygon(box_gt, linewidth=3, edgecolor='r', facecolor='none')
+        else:
+            poly = patches.Polygon(box_gt, linewidth=3, edgecolor='g', facecolor='none')
+        ax.add_patch(poly)
+    ax.set_title(f"Average precision: {average_precision:.4f}")
     plt.savefig(save_name)
     plt.close()
 
@@ -162,3 +169,81 @@ def crop_rect(img, rect):
     img_crop = cv2.warpPerspective(img, M, (rect_width, rect_height))
 
     return img_crop
+
+def is_matched(text_box_gt, text_box, im_width, im_height, threshold=0.75):
+    """ Find out whether the IoU of two bounding boxes is larger than the threshold.
+    
+    Arguments:
+        text_box_gt {4x2 np.array} -- Ground truth bounding box
+        text_box {4x2 np.array} -- Detected box
+    
+    Keyword Arguments:
+        threshold {float} -- The IoU threshold for "matched" region. (default: {0.75})
+    """
+
+    text_box = text_box.astype(np.int32)[np.newaxis, :, :]
+    text_box_gt = text_box_gt.astype(np.int32)[np.newaxis, :, :]
+    # A "canvas" for calculating the union
+    union_canvas = np.zeros((im_height, im_width))
+    cv2.fillPoly(union_canvas, text_box, 1)
+    cv2.fillPoly(union_canvas, text_box_gt, 1)
+    union_area = np.sum(union_canvas, dtype=np.int32)
+    # Two canvases for calculating the intersection
+    test_intersect_canvas = np.zeros((im_height, im_width))
+    gt_intersect_canvas = np.zeros((im_height, im_width))
+    cv2.fillPoly(test_intersect_canvas, text_box, 1)
+    cv2.fillPoly(gt_intersect_canvas, text_box_gt, 1)
+    intersect_canvas = np.logical_and(test_intersect_canvas.astype(np.bool), gt_intersect_canvas.astype(np.bool))
+    intersect_area = np.sum(intersect_canvas, dtype=np.int32)
+    iou = intersect_area / union_area
+    # print(f"Intersect: {intersect_area}, Union: {union_area}, IoU: {iou}")
+    if iou >= threshold:
+        return True
+    else:
+        return False
+
+def average_precision_image(text_boxes, text_boxes_gt, text_boxes_gt_tag, im_width, im_height, ratio_w, ratio_h, threshold=0.75):
+    """ Calculate the average precision of the detections in a single image
+    
+    Arguments:
+        text_boxes {nx9 np.array dtype=np.float32} -- Detected text boxes /w area scores
+        text_boxes_gt {nx4x2 np.array dtype=np.float32} -- Ground truth text boxes
+        text_boxes_gt_tag {nx1 np.array dtype=np.bool} -- Hard area/ non-ROI tags for text regions
+        im_width {float} -- Width of the original image
+        im_height {float} -- height of the original image
+        ratio_w {float} -- Resize ratio of width during test
+        ratio_h {float} -- Resize ratio of height during test
+    
+    Keyword Arguments:
+        threshold {float} -- The IoU threshold for "matched" region. (default: {0.75})
+    
+    Returns:
+        [float] -- The average precision
+    """
+    # Sort and resize the detected bounding boxes based on its score
+    sorted_boxes = np.sort(text_boxes.view('f4, f4, f4, f4, f4, f4, f4, f4, f4'), order=['f8'], axis=0).view(np.float32)[::-1]
+    sorted_boxes = sorted_boxes[:, :8].reshape(-1, 4, 2)
+    sorted_boxes[:, :, 0] /= ratio_w
+    sorted_boxes[:, :, 1] /= ratio_h
+    matched_mask = [False] * sorted_boxes.shape[0]
+
+    # Search among the detected boxes and see if the bounding box is mathced with ground truth
+    for idx, sorted_box in enumerate(sorted_boxes):
+        for text_poly, text_tag in zip(text_boxes_gt, text_boxes_gt_tag):
+            if text_tag:
+                continue
+            if is_matched(sorted_box, text_poly, im_width, im_height, threshold=threshold):
+                matched_mask[idx] = True
+                continue
+
+    # Calculate the average precision
+    precision_total = 0
+    true_nums = 0
+    for idx, matched in enumerate(matched_mask):
+        if matched:
+            true_nums += 1
+            precision_total += true_nums / (idx+1)
+
+    average_precision = precision_total / (text_boxes_gt.shape[0] - np.sum(text_boxes_gt_tag))
+    
+    return average_precision
